@@ -16,11 +16,22 @@ numpy>=1.24.0
 auto-gptq>=0.6.0
 autoawq>=0.1.8
 
+# GGUF conversion
+gguf>=0.5.0
+
 # Evaluation
+evaluate>=0.4.0
 # human-eval  # Install separately: pip install human-eval
 
-# Optional: llama.cpp Python bindings
+# Flash Attention (requires Ampere+ GPU, CUDA 11.6+)
+# Install with: pip install flash-attn --no-build-isolation
+# flash-attn>=2.3.0
+
+# llama.cpp Python bindings for GGUF
 # llama-cpp-python>=0.2.0
 
-# Optional: vLLM for serving
+# vLLM for high-throughput serving
 # vllm>=0.2.0
+
+# Docker SDK (optional, for programmatic container management)
+# docker>=6.0.0
