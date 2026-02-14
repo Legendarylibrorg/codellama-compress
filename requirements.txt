@@ -1,0 +1,26 @@
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.36.0
+accelerate>=0.25.0
+datasets>=2.14.0
+safetensors>=0.4.0
+sentencepiece>=0.1.99
+protobuf>=4.24.0
+tqdm>=4.66.0
+peft>=0.7.0
+bitsandbytes>=0.41.0
+scipy>=1.11.0
+numpy>=1.24.0
+
+# Quantization
+auto-gptq>=0.6.0
+autoawq>=0.1.8
+
+# Evaluation
+# human-eval  # Install separately: pip install human-eval
+
+# Optional: llama.cpp Python bindings
+# llama-cpp-python>=0.2.0
+
+# Optional: vLLM for serving
+# vllm>=0.2.0
