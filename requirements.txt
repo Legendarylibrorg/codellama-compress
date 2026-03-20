@@ -8,7 +8,7 @@ sentencepiece==0.2.1
 protobuf==5.29.6
 tqdm==4.66.3
 peft==0.7.0
-bitsandbytes==0.41.0
+bitsandbytes==0.49.2
 scipy==1.11.0
 numpy==1.24.0
 
