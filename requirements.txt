@@ -10,7 +10,7 @@ tqdm==4.66.3
 peft==0.7.0
 bitsandbytes==0.41.0
 scipy==1.11.0
-numpy==1.24.0
+numpy==2.4.3
 
 # Quantization
 auto-gptq==0.6.0
