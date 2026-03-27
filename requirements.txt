@@ -17,7 +17,7 @@ auto-gptq==0.6.0
 autoawq==0.1.8
 
 # GGUF conversion
-gguf==0.5.0
+gguf==0.18.0
 
 # Evaluation
 evaluate==0.4.0
