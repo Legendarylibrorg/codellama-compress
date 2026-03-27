@@ -6,7 +6,7 @@ datasets==2.14.0
 safetensors==0.4.0
 sentencepiece==0.2.1
 protobuf==5.29.6
-tqdm==4.66.3
+tqdm==4.67.3
 peft==0.18.1
 bitsandbytes==0.41.0
 scipy==1.11.0
