@@ -24,6 +24,8 @@ Runs are stored under:
 output/runs/<run_id>/
 ```
 
+`<run_id>` defaults to a UTC timestamp (unless you pass `--run-id`).
+
 Typical stage directories:
 
 - `distilled/`: HF model directory saved after distillation
@@ -36,8 +38,8 @@ Typical stage directories:
 
 Some commands require extras:
 
-- `pip install -e '.[dev]'`: lint/test tooling
-- `pip install -e '.[quant]'`: GPTQ/AWQ/bitsandbytes helpers
+- `pip install ".[dev]"`: lint/test tooling
+- `pip install ".[quant]"`: GPTQ/AWQ/bitsandbytes helpers
 
 ## Notes
 

@@ -36,16 +36,14 @@ def write_export_bundle(
         "WORKDIR /app\n"
         "RUN apt-get update && apt-get install -y python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*\n"
         "COPY . /app\n"
-        "RUN python3 -m pip install --upgrade pip && pip install -e .[quant] && pip install vllm\n"
+        'RUN python3 -m pip install --upgrade pip && pip install ".[quant]" && pip install vllm\n'
         f"EXPOSE {port}\n"
         f'CMD ["bash", "output/export/vllm_server.sh"]\n'
     )
 
     # Ollama Modelfile (points at GGUF output produced by convert script)
     (out_dir / "Modelfile").write_text(
-        f"FROM ./model-q4_k_m.gguf\n"
-        f'PARAMETER stop "<|eot_id|>"\n'
-        f'SYSTEM "You are {model_name}."\n'
+        f'FROM ./model-q4_k_m.gguf\nPARAMETER stop "<|eot_id|>"\nSYSTEM "You are {model_name}."\n'
     )
 
     # GGUF conversion helper (requires llama.cpp checkout)

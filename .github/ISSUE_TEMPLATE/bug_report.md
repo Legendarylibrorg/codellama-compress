@@ -20,7 +20,7 @@ labels: bug
 - OS:
 - Python:
 - GPU (`nvidia-smi`):
-- Install method (`pip install -e ...`):
+- Install method (`pip install .`, `pip install ".[quant]"`, etc.):
 
 ## Logs / stack trace
 

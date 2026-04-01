@@ -68,16 +68,14 @@ def run_mlp_mask_prune(
         else:
             score = gate_w.abs().sum(dim=1) + up_w.abs().sum(dim=1)
 
-        keep = torch.topk(score, k=k, largest=True).indices
-        mask = torch.ones(inter, dtype=gate_w.dtype)
-        mask[keep] = 0  # we'll mask the *removed* ones below by multiplying, so invert after
-        # mask removed neurons => removed_mask is 0 for removed, 1 for kept
-        removed_mask = 1.0 - mask
+        keep_idx = torch.topk(score, k=k, largest=True).indices
+        keep_mask = torch.zeros(inter, dtype=gate_w.dtype)
+        keep_mask[keep_idx] = 1.0
 
         # Apply row mask to gate/up and column mask to down.
-        gate.weight.data.mul_(removed_mask[:, None])
-        up.weight.data.mul_(removed_mask[:, None])
-        down.weight.data.mul_(removed_mask[None, :])
+        gate.weight.data.mul_(keep_mask[:, None])
+        up.weight.data.mul_(keep_mask[:, None])
+        down.weight.data.mul_(keep_mask[None, :])
 
         pruned_layers += 1
         total_masked += int(inter - k)

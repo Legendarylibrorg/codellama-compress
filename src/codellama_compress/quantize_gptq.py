@@ -61,7 +61,7 @@ def run_gptq_quantization(
         from auto_gptq import AutoGPTQForCausalLM, BaseQuantizeConfig  # type: ignore
     except Exception as e:  # pragma: no cover
         raise RuntimeError(
-            "auto-gptq is not installed. Install with: pip install -e '.[quant]'"
+            'auto-gptq is not installed. Install with: pip install ".[quant]"'
         ) from e
 
     tokenizer = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True)

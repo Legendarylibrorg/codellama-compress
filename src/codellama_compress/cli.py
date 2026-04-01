@@ -285,20 +285,32 @@ def build_parser() -> argparse.ArgumentParser:
     sp = p.add_subparsers(dest="cmd", required=True)
 
     # distill run
-    distill = sp.add_parser("distill")
+    distill = sp.add_parser("distill", help="Knowledge distillation commands.")
     distill_sp = distill.add_subparsers(dest="sub", required=True)
-    distill_run = distill_sp.add_parser("run")
+    distill_run = distill_sp.add_parser("run", help="Run teacher->student logit distillation.")
     distill_run.add_argument("--run-id", default=None)
     distill_run.add_argument("--out-root", default="output/runs")
     distill_run.add_argument("--config", default=None, help="JSON config file.")
-    distill_run.add_argument("--min-free-gb", type=float, default=20.0)
-    distill_run.add_argument("--max-run-dir-gb", type=float, default=200.0)
+    distill_run.add_argument(
+        "--min-free-gb",
+        type=float,
+        default=None,
+        help="Optional safety guard: error if free space under this many GB.",
+    )
+    distill_run.add_argument(
+        "--max-run-dir-gb",
+        type=float,
+        default=None,
+        help="Optional safety guard: error if the run directory exceeds this many GB.",
+    )
     distill_run.set_defaults(func=_cmd_distill_run)
 
     # prune mask-mlp
-    prune = sp.add_parser("prune")
+    prune = sp.add_parser("prune", help="Pruning/masking commands.")
     prune_sp = prune.add_subparsers(dest="sub", required=True)
-    prune_mask = prune_sp.add_parser("mask-mlp")
+    prune_mask = prune_sp.add_parser(
+        "mask-mlp", help="Mask a fraction of MLP neurons (shape-preserving)."
+    )
     prune_mask.add_argument("--model-dir", required=True)
     prune_mask.add_argument("--run-id", default=None)
     prune_mask.add_argument("--out-root", default="output/runs")
@@ -308,36 +320,68 @@ def build_parser() -> argparse.ArgumentParser:
     prune_mask.set_defaults(func=_cmd_prune_mask_mlp)
 
     # finetune run
-    finetune = sp.add_parser("finetune")
+    finetune = sp.add_parser("finetune", help="Fine-tuning commands.")
     finetune_sp = finetune.add_subparsers(dest="sub", required=True)
-    finetune_run = finetune_sp.add_parser("run")
+    finetune_run = finetune_sp.add_parser(
+        "run", help="Run post-prune recovery fine-tuning (LM loss)."
+    )
     finetune_run.add_argument("--model-dir", required=True)
     finetune_run.add_argument("--run-id", default=None)
     finetune_run.add_argument("--out-root", default="output/runs")
     finetune_run.add_argument("--config", default=None, help="JSON config file.")
-    finetune_run.add_argument("--min-free-gb", type=float, default=20.0)
-    finetune_run.add_argument("--max-run-dir-gb", type=float, default=200.0)
+    finetune_run.add_argument(
+        "--min-free-gb",
+        type=float,
+        default=None,
+        help="Optional safety guard: error if free space under this many GB.",
+    )
+    finetune_run.add_argument(
+        "--max-run-dir-gb",
+        type=float,
+        default=None,
+        help="Optional safety guard: error if the run directory exceeds this many GB.",
+    )
     finetune_run.set_defaults(func=_cmd_finetune_run)
 
     # quantize
-    quant = sp.add_parser("quantize")
+    quant = sp.add_parser("quantize", help="Quantization commands (some require extras).")
     quant_sp = quant.add_subparsers(dest="sub", required=True)
-    qg = quant_sp.add_parser("gptq")
+    qg = quant_sp.add_parser("gptq", help="Quantize a model with GPTQ (requires '.[quant]').")
     qg.add_argument("--model-dir", required=True)
     qg.add_argument("--run-id", default=None)
     qg.add_argument("--out-root", default="output/runs")
     qg.add_argument("--config", default=None, help="JSON config file.")
-    qg.add_argument("--min-free-gb", type=float, default=10.0)
-    qg.add_argument("--max-run-dir-gb", type=float, default=200.0)
+    qg.add_argument(
+        "--min-free-gb",
+        type=float,
+        default=None,
+        help="Optional safety guard: error if free space under this many GB.",
+    )
+    qg.add_argument(
+        "--max-run-dir-gb",
+        type=float,
+        default=None,
+        help="Optional safety guard: error if the run directory exceeds this many GB.",
+    )
     qg.set_defaults(func=_cmd_quant_gptq)
 
-    qa = quant_sp.add_parser("awq")
+    qa = quant_sp.add_parser("awq", help="Quantize a model with AWQ (requires '.[quant]').")
     qa.add_argument("--model-dir", required=True)
     qa.add_argument("--run-id", default=None)
     qa.add_argument("--out-root", default="output/runs")
     qa.add_argument("--config", default=None, help="JSON config file.")
-    qa.add_argument("--min-free-gb", type=float, default=10.0)
-    qa.add_argument("--max-run-dir-gb", type=float, default=200.0)
+    qa.add_argument(
+        "--min-free-gb",
+        type=float,
+        default=None,
+        help="Optional safety guard: error if free space under this many GB.",
+    )
+    qa.add_argument(
+        "--max-run-dir-gb",
+        type=float,
+        default=None,
+        help="Optional safety guard: error if the run directory exceeds this many GB.",
+    )
     qa.set_defaults(func=_cmd_quant_awq)
 
     qb = quant_sp.add_parser("bnb")
@@ -346,18 +390,20 @@ def build_parser() -> argparse.ArgumentParser:
     qb.set_defaults(func=_cmd_quant_bnb)
 
     # evaluate run
-    ev = sp.add_parser("evaluate")
+    ev = sp.add_parser("evaluate", help="Evaluation commands (lightweight smoke checks).")
     ev_sp = ev.add_subparsers(dest="sub", required=True)
-    ev_run = ev_sp.add_parser("run")
+    ev_run = ev_sp.add_parser("run", help="Smoke-evaluate a model directory (small prompts).")
     ev_run.add_argument("--model-dir", required=True)
     ev_run.add_argument("--out-path", default=None)
     ev_run.add_argument("--config", default=None, help="JSON config file (reserved).")
     ev_run.set_defaults(func=_cmd_evaluate_run)
 
     # export bundle
-    ex = sp.add_parser("export")
+    ex = sp.add_parser("export", help="Generate helper artifacts for serving/export.")
     ex_sp = ex.add_subparsers(dest="sub", required=True)
-    ex_bundle = ex_sp.add_parser("bundle")
+    ex_bundle = ex_sp.add_parser(
+        "bundle", help="Write a serving/export helper bundle (scripts + Dockerfile)."
+    )
     ex_bundle.add_argument("--model-dir", required=True)
     ex_bundle.add_argument("--out-dir", default="output/export")
     ex_bundle.add_argument("--model-name", default="codellama-compressed")
@@ -366,7 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     ex_bundle.set_defaults(func=_cmd_export_bundle)
 
     # util
-    util = sp.add_parser("util")
+    util = sp.add_parser("util", help="Utilities.")
     util_sp = util.add_subparsers(dest="sub", required=True)
     env = util_sp.add_parser("env-report")
     env.add_argument("--run-dir", default="output/runs/_env_report")
@@ -378,7 +424,9 @@ def build_parser() -> argparse.ArgumentParser:
     va.add_argument("--max-new-tokens", type=int, default=64)
     va.set_defaults(func=_cmd_util_verify_artifact)
 
-    sd = util_sp.add_parser("speculative")
+    sd = util_sp.add_parser(
+        "speculative", help="Run speculative decoding with draft+target models."
+    )
     sd.add_argument("--target-model", required=True)
     sd.add_argument("--draft-model", required=True)
     sd.add_argument("--prompt", default="def fibonacci(n):")

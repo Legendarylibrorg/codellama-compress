@@ -11,7 +11,7 @@ cd codellama-compress
 python3 -m venv venv
 source venv/bin/activate
 python -m pip install --upgrade pip
-pip install -e ".[dev]"
+pip install .
 ```
 
 Notes:
@@ -21,7 +21,7 @@ Notes:
 - Architecture overview: `docs/architecture.md`.
 - This CLI now uses Python stdlib `argparse` (no Typer/Rich/PyYAML/Numpy/Scipy).
 
-Run the pipeline:
+Run the pipeline (basic):
 
 ```bash
 # Distill (teacher -> student)
@@ -36,12 +36,7 @@ codellama-compress prune mask-mlp --model-dir "$RUN_DIR/distilled" --ratio 0.25 
 # Finetune (post-prune recovery)
 codellama-compress finetune run --model-dir "$RUN_DIR/pruned"
 
-# Quantize (GPTQ/AWQ require extras)
-pip install -e ".[quant]"
-codellama-compress quantize gptq --model-dir "$RUN_DIR/finetuned"
-codellama-compress quantize awq --model-dir "$RUN_DIR/finetuned"
-
-# Evaluate
+# Evaluate (smoke check)
 codellama-compress evaluate run --model-dir "$RUN_DIR/finetuned"
 
 # Export bundle (vLLM/Docker/GGUF helper scripts)
@@ -49,6 +44,14 @@ codellama-compress export bundle --model-dir "$RUN_DIR/finetuned" --out-dir outp
 ```
 
 Tip: the long-running commands include disk safety guards (see `--help` for `--min-free-gb` and `--max-run-dir-gb`).
+
+Optional: quantization (requires extra dependencies):
+
+```bash
+pip install ".[quant]"
+codellama-compress quantize gptq --model-dir "$RUN_DIR/finetuned"
+codellama-compress quantize awq --model-dir "$RUN_DIR/finetuned"
+```
 
 Start a vLLM server (after exporting) and query it:
 
@@ -58,6 +61,20 @@ bash ./output/export/vllm_server.sh
 curl http://localhost:8000/v1/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"codellama","prompt":"def fibonacci(n):","max_tokens":100}'
+```
+
+## Development
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+
+pre-commit install
+ruff check .
+black --check .
+pytest -q
 ```
 
 ## Features
@@ -73,8 +90,8 @@ curl http://localhost:8000/v1/completions \
 
 ### Optional (extras)
 
-- **GPTQ quantization**: install `pip install -e '.[quant]'`, then `codellama-compress quantize gptq ...`
-- **AWQ quantization**: install `pip install -e '.[quant]'`, then `codellama-compress quantize awq ...`
+- **GPTQ quantization**: install `pip install ".[quant]"`, then `codellama-compress quantize gptq ...`
+- **AWQ quantization**: install `pip install ".[quant]"`, then `codellama-compress quantize awq ...`
 - **bitsandbytes bundle**: `codellama-compress quantize bnb ...` (load-time quantization)
 
 ### Planned
@@ -165,7 +182,7 @@ Key knobs live in the CLI dataclasses:
 ```
 output/
 └── runs/
-    └── <run_id>/
+    └── <run_id>/  # defaults to UTC timestamp (or pass --run-id)
         ├── config.json
         ├── env.json
         ├── pip_freeze.txt

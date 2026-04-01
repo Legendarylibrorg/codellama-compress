@@ -42,9 +42,7 @@ def run_awq_quantization(
     try:
         from awq import AutoAWQForCausalLM  # type: ignore
     except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "autoawq is not installed. Install with: pip install -e '.[quant]'"
-        ) from e
+        raise RuntimeError('autoawq is not installed. Install with: pip install ".[quant]"') from e
 
     tok = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True)
     if tok.pad_token is None:

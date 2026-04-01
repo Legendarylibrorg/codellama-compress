@@ -38,5 +38,5 @@ jobs:
         run: |
           # Audit the *actual* project dependencies from pyproject by installing the package,
           # rather than relying on a potentially stale requirements.txt.
-          python -m pip install -e .
+          python -m pip install .
           pip-audit

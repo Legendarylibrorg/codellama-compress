@@ -19,7 +19,7 @@ cd codellama-compress
 python3 -m venv venv
 source venv/bin/activate
 python -m pip install --upgrade pip
-pip install -e ".[dev]"
+pip install .
 ```
 
 ### Known-good starting point (recommended)
@@ -33,7 +33,7 @@ This repo tracks dependencies via `pyproject.toml` (ranges). If you want fewer s
 Then install optional quantization deps only when you need them:
 
 ```bash
-pip install -e ".[quant]"
+pip install ".[quant]"
 ```
 
 Note: the CLI is stdlib-based (`argparse`) to reduce supply-chain risk.
