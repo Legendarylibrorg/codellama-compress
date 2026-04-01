@@ -11,6 +11,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import save_json
+from .reporting import write_metrics, write_provenance
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ def measure_speed(
 
 
 def evaluate_model_dir(model_dir: Path, out_path: Path | None = None) -> EvalResult:
+    # This is intentionally a lightweight smoke evaluation.
     tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_dir, device_map="auto", torch_dtype=torch.float16
@@ -91,4 +93,11 @@ def evaluate_model_dir(model_dir: Path, out_path: Path | None = None) -> EvalRes
     res = EvalResult(model=str(model_dir), perplexity=ppl, tokens_per_second=tps, avg_time_ms=ms)
     if out_path is not None:
         save_json(out_path, res.to_dict())
+    return res
+
+
+def evaluate_into_run_dir(*, run_dir: Path, model_dir: Path) -> EvalResult:
+    write_provenance(run_dir, extra={"stage": "evaluate"})
+    res = evaluate_model_dir(model_dir)
+    write_metrics(run_dir, stage="evaluate", metrics=res.to_dict())
     return res

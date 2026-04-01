@@ -215,11 +215,42 @@ def _cmd_quant_bnb(args: argparse.Namespace) -> int:
 
 
 def _cmd_evaluate_run(args: argparse.Namespace) -> int:
-    from .evaluate import evaluate_model_dir
+    from .evaluate import evaluate_into_run_dir, evaluate_model_dir
 
     out_path = Path(args.out_path) if args.out_path else None
-    res = evaluate_model_dir(Path(args.model_dir), out_path=out_path)
+    if args.run_dir:
+        res = evaluate_into_run_dir(run_dir=Path(args.run_dir), model_dir=Path(args.model_dir))
+    else:
+        res = evaluate_model_dir(Path(args.model_dir), out_path=out_path)
     print(res)
+    return 0
+
+
+def _cmd_evaluate_benchmark(args: argparse.Namespace) -> int:
+    from datetime import datetime, timezone
+
+    from .benchmarks import run_benchmarks
+
+    if args.out_dir:
+        out_dir = Path(args.out_dir)
+    elif args.out_root or args.run_id:
+        run_dir = new_run_dir(Path(args.out_root or "output/runs"), run_id=args.run_id)
+        out_dir = run_dir / "benchmarks"
+    else:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        out_dir = Path("output/benchmarks") / ts
+
+    res = run_benchmarks(
+        model_dir=Path(args.model_dir),
+        tasks=args.tasks,
+        out_dir=out_dir,
+        seed=args.seed,
+        limit=args.max_samples,
+        save_per_sample=args.save_per_sample,
+    )
+    print(f"Wrote benchmark results to {out_dir}")
+    # Also print high-level result keys for quick view
+    print({"tasks": args.tasks, "results_keys": sorted((res.get("results") or {}).keys())})
     return 0
 
 
@@ -432,8 +463,41 @@ def build_parser() -> argparse.ArgumentParser:
     ev_run = ev_sp.add_parser("run", help="Smoke-evaluate a model directory (small prompts).")
     ev_run.add_argument("--model-dir", required=True)
     ev_run.add_argument("--out-path", default=None)
+    ev_run.add_argument(
+        "--run-dir",
+        default=None,
+        help="If set, also write research-grade metrics/provenance into this run directory.",
+    )
     ev_run.add_argument("--config", default=None, help="JSON config file (reserved).")
     ev_run.set_defaults(func=_cmd_evaluate_run)
+
+    ev_bench = ev_sp.add_parser("benchmark", help="Run research benchmarks (requires '.[eval]').")
+    ev_bench.add_argument("--model-dir", required=True)
+    ev_bench.add_argument(
+        "--tasks",
+        required=True,
+        help="Comma-separated task list (e.g. humaneval,mbpp).",
+    )
+    ev_bench.add_argument(
+        "--out-dir", default=None, help="Output directory for benchmark artifacts."
+    )
+    ev_bench.add_argument(
+        "--out-root", default=None, help="If set, write under output/runs/<run_id>/benchmarks."
+    )
+    ev_bench.add_argument(
+        "--run-id", default=None, help="Used with --out-root for run directory naming."
+    )
+    ev_bench.add_argument("--seed", type=int, default=42)
+    ev_bench.add_argument(
+        "--max-samples", type=int, default=None, help="Optional limit for quick runs."
+    )
+    ev_bench.add_argument(
+        "--save-per-sample",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write per-sample details JSONL (large).",
+    )
+    ev_bench.set_defaults(func=_cmd_evaluate_benchmark)
 
     # export bundle
     ex = sp.add_parser("export", help="Generate helper artifacts for serving/export.")

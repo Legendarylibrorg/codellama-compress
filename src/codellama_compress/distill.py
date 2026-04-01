@@ -18,6 +18,7 @@ from transformers import (
 )
 
 from .config import DatasetConfig, DistillConfig, save_json
+from .reporting import jsonl_writer, write_metrics, write_provenance
 
 
 def _precision_kwargs(precision: str) -> dict:
@@ -70,6 +71,8 @@ def run_distillation(
     cfg: DistillConfig,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
+    write_provenance(run_dir, extra={"stage": "distill"})
+    steps_log_path = run_dir / "logs" / "distill_train_steps.jsonl"
 
     accelerator = Accelerator(**_precision_kwargs(cfg.precision))
     device = accelerator.device
@@ -133,46 +136,71 @@ def run_distillation(
     pbar = tqdm(range(cfg.steps), disable=not accelerator.is_local_main_process)
 
     student.train()
-    for step in pbar:
-        # Sample next text (loop if needed when streaming)
-        try:
-            text = next(data_iter)
-        except StopIteration:
-            data_iter = iter(_iter_texts(dataset_cfg))
-            text = next(data_iter)
+    with jsonl_writer(steps_log_path) as write_step:
+        for step in pbar:
+            step_t0 = None
+            if accelerator.is_local_main_process:
+                import time
 
-        batch = _tokenize(tokenizer, text[: cfg.seq_len * 4], cfg.seq_len)
-        batch = {k: v.to(device) for k, v in batch.items()}
+                step_t0 = time.time()
+            # Sample next text (loop if needed when streaming)
+            try:
+                text = next(data_iter)
+            except StopIteration:
+                data_iter = iter(_iter_texts(dataset_cfg))
+                text = next(data_iter)
 
-        with torch.no_grad():
-            t_out = teacher(**batch)
-            t_logits = t_out.logits
+            batch = _tokenize(tokenizer, text[: cfg.seq_len * 4], cfg.seq_len)
+            batch = {k: v.to(device) for k, v in batch.items()}
 
-        s_out = student(**batch, labels=batch["input_ids"])
-        s_logits = s_out.logits
-        hard_loss = s_out.loss
+            with torch.no_grad():
+                t_out = teacher(**batch)
+                t_logits = t_out.logits
 
-        # KL on last dimension; shift handled implicitly by labels loss, but for distill we align logits.
-        T = cfg.temperature
-        soft_teacher = F.softmax(t_logits / T, dim=-1)
-        soft_student = F.log_softmax(s_logits / T, dim=-1)
-        distill_loss = F.kl_div(soft_student, soft_teacher, reduction="batchmean") * (T * T)
+            s_out = student(**batch, labels=batch["input_ids"])
+            s_logits = s_out.logits
+            hard_loss = s_out.loss
 
-        loss = cfg.alpha * distill_loss + (1.0 - cfg.alpha) * hard_loss
-        loss = loss / cfg.grad_accum_steps
-        accelerator.backward(loss)
+            # KL on last dimension; shift handled implicitly by labels loss, but for distill we align logits.
+            T = cfg.temperature
+            soft_teacher = F.softmax(t_logits / T, dim=-1)
+            soft_student = F.log_softmax(s_logits / T, dim=-1)
+            distill_loss = F.kl_div(soft_student, soft_teacher, reduction="batchmean") * (T * T)
 
-        if (step + 1) % cfg.grad_accum_steps == 0:
-            accelerator.clip_grad_norm_(student.parameters(), cfg.max_grad_norm)
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad(set_to_none=True)
+            loss = cfg.alpha * distill_loss + (1.0 - cfg.alpha) * hard_loss
+            loss = loss / cfg.grad_accum_steps
+            accelerator.backward(loss)
 
-        loss_value = float(loss.detach().cpu()) * cfg.grad_accum_steps
-        losses.append(loss_value)
-        recent.append(loss_value)
-        if recent:
-            pbar.set_postfix(loss=float(sum(recent) / len(recent)))
+            if (step + 1) % cfg.grad_accum_steps == 0:
+                accelerator.clip_grad_norm_(student.parameters(), cfg.max_grad_norm)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
+
+            loss_value = float(loss.detach().cpu()) * cfg.grad_accum_steps
+            losses.append(loss_value)
+            recent.append(loss_value)
+            if recent:
+                pbar.set_postfix(loss=float(sum(recent) / len(recent)))
+
+            if accelerator.is_local_main_process:
+                lr = (
+                    float(scheduler.get_last_lr()[0]) if hasattr(scheduler, "get_last_lr") else None
+                )
+                dt = None
+                if step_t0 is not None:
+                    import time
+
+                    dt = float(time.time() - step_t0)
+                write_step(
+                    {
+                        "stage": "distill",
+                        "step": step + 1,
+                        "loss": loss_value,
+                        "lr": lr,
+                        "dt_seconds": dt,
+                    }
+                )
 
         if (
             accelerator.is_local_main_process
@@ -208,6 +236,15 @@ def run_distillation(
         unwrapped = accelerator.unwrap_model(student)
         unwrapped.save_pretrained(out_dir, safe_serialization=True)
         tokenizer.save_pretrained(out_dir)
+        write_metrics(
+            run_dir,
+            stage="distill",
+            metrics={
+                "steps": cfg.steps,
+                "final_loss": (losses[-1] if losses else None),
+                "loss_mean_recent": (sum(recent) / len(recent) if recent else None),
+            },
+        )
         save_json(
             out_dir / "training_log.json",
             {"losses": losses, "steps": cfg.steps, "config": asdict(cfg)},

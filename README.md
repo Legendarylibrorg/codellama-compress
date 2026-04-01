@@ -54,6 +54,13 @@ codellama-compress quantize gptq --model-dir "$RUN_DIR/finetuned"
 codellama-compress quantize awq --model-dir "$RUN_DIR/finetuned"
 ```
 
+Optional: research benchmarks (full suite; largest dependency footprint):
+
+```bash
+pip install ".[eval]"
+codellama-compress evaluate benchmark --model-dir "$RUN_DIR/finetuned" --tasks humaneval,mbpp
+```
+
 Start a vLLM server (after exporting) and query it:
 
 ```bash

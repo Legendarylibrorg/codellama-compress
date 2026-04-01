@@ -6,6 +6,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from .config import DatasetConfig, GPTQConfig, save_json
+from .reporting import write_metrics, write_provenance
 
 
 def _sample_texts(dataset_cfg: DatasetConfig, n: int) -> list[str]:
@@ -39,6 +40,7 @@ def run_awq_quantization(
     We reuse `GPTQConfig` for calibration knobs (samples/seq_len).
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    write_provenance(run_dir, extra={"stage": "quantize_awq"})
     try:
         from awq import AutoAWQForCausalLM  # type: ignore
     except Exception as e:  # pragma: no cover
@@ -68,4 +70,9 @@ def run_awq_quantization(
             "awq": {"calibration_samples": cfg.calibration_samples},
             "dataset": dataset_cfg,
         },
+    )
+    write_metrics(
+        run_dir,
+        stage="quantize_awq",
+        metrics={"output_dir": str(out_dir), "calibration_samples": cfg.calibration_samples},
     )

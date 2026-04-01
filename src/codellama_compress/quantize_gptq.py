@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 from transformers import AutoTokenizer
 
 from .config import DatasetConfig, GPTQConfig, save_json
+from .reporting import write_metrics, write_provenance
 
 
 def _iter_texts(dataset_cfg: DatasetConfig) -> Iterable[str]:
@@ -55,6 +56,7 @@ def run_gptq_quantization(
     cfg: GPTQConfig,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
+    write_provenance(run_dir, extra={"stage": "quantize_gptq"})
 
     # Imported lazily because auto-gptq is optional/heavy.
     try:
@@ -96,4 +98,9 @@ def run_gptq_quantization(
             "gptq": cfg,
             "dataset": dataset_cfg,
         },
+    )
+    write_metrics(
+        run_dir,
+        stage="quantize_gptq",
+        metrics={"output_dir": str(out_dir), "bits": cfg.bits, "group_size": cfg.group_size},
     )

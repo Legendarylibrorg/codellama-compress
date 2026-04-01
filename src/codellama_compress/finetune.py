@@ -13,6 +13,7 @@ from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
 
 from .config import DatasetConfig, DistillConfig, save_json
+from .reporting import jsonl_writer, write_metrics, write_provenance
 
 
 def _precision_kwargs(precision: str) -> dict:
@@ -68,6 +69,8 @@ def run_finetune(
     We reuse `DistillConfig` for training knobs; teacher/distill-related fields are ignored.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    write_provenance(run_dir, extra={"stage": "finetune"})
+    steps_log_path = run_dir / "logs" / "finetune_train_steps.jsonl"
 
     accelerator = Accelerator(**_precision_kwargs(cfg.precision))
     device = accelerator.device
@@ -104,37 +107,71 @@ def run_finetune(
     recent = deque(maxlen=20)
     pbar = tqdm(range(cfg.steps), disable=not accelerator.is_local_main_process)
     model.train()
+    with jsonl_writer(steps_log_path) as write_step:
+        for step in pbar:
+            step_t0 = None
+            if accelerator.is_local_main_process:
+                import time
 
-    for step in pbar:
-        try:
-            text = next(texts)
-        except StopIteration:
-            texts = iter(_iter_texts(dataset_cfg))
-            text = next(texts)
+                step_t0 = time.time()
 
-        batch = _tokenize(tokenizer, text[: cfg.seq_len * 4], cfg.seq_len)
-        batch = {k: v.to(device) for k, v in batch.items()}
+            try:
+                text = next(texts)
+            except StopIteration:
+                texts = iter(_iter_texts(dataset_cfg))
+                text = next(texts)
 
-        out = model(**batch, labels=batch["input_ids"])
-        loss = out.loss / cfg.grad_accum_steps
-        accelerator.backward(loss)
+            batch = _tokenize(tokenizer, text[: cfg.seq_len * 4], cfg.seq_len)
+            batch = {k: v.to(device) for k, v in batch.items()}
 
-        if (step + 1) % cfg.grad_accum_steps == 0:
-            accelerator.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad(set_to_none=True)
+            out = model(**batch, labels=batch["input_ids"])
+            loss = out.loss / cfg.grad_accum_steps
+            accelerator.backward(loss)
 
-        loss_value = float(loss.detach().cpu()) * cfg.grad_accum_steps
-        losses.append(loss_value)
-        recent.append(loss_value)
-        if recent:
-            pbar.set_postfix(loss=float(sum(recent) / len(recent)))
+            if (step + 1) % cfg.grad_accum_steps == 0:
+                accelerator.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
+
+            loss_value = float(loss.detach().cpu()) * cfg.grad_accum_steps
+            losses.append(loss_value)
+            recent.append(loss_value)
+            if recent:
+                pbar.set_postfix(loss=float(sum(recent) / len(recent)))
+
+            if accelerator.is_local_main_process:
+                lr = (
+                    float(scheduler.get_last_lr()[0]) if hasattr(scheduler, "get_last_lr") else None
+                )
+                dt = None
+                if step_t0 is not None:
+                    import time
+
+                    dt = float(time.time() - step_t0)
+                write_step(
+                    {
+                        "stage": "finetune",
+                        "step": step + 1,
+                        "loss": loss_value,
+                        "lr": lr,
+                        "dt_seconds": dt,
+                    }
+                )
 
     if accelerator.is_local_main_process:
         unwrapped = accelerator.unwrap_model(model)
         unwrapped.save_pretrained(out_dir, safe_serialization=True)
         tokenizer.save_pretrained(out_dir)
+        write_metrics(
+            run_dir,
+            stage="finetune",
+            metrics={
+                "steps": cfg.steps,
+                "final_loss": (losses[-1] if losses else None),
+                "loss_mean_recent": (sum(recent) / len(recent) if recent else None),
+            },
+        )
         save_json(
             out_dir / "finetune_log.json",
             {"losses": losses, "steps": cfg.steps, "config": asdict(cfg)},

@@ -25,6 +25,9 @@ quant = [
   "autoawq>=0.2.0",
   "bitsandbytes>=0.41.0",
 ]
+eval = [
+  "lm-eval[hf]>=0.4.11",
+]
 
 [project.scripts]
 codellama-compress = "codellama_compress.cli:main"
