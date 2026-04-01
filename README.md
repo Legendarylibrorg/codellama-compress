@@ -85,7 +85,7 @@ pytest -q
 - **Distillation**: teacher → student KL distillation (`codellama-compress distill run`)
 - **Pruning (masking)**: shape-preserving MLP neuron masking (`codellama-compress prune mask-mlp`)
 - **Recovery fine-tune**: post-prune fine-tuning (`codellama-compress finetune run`)
-- **Evaluation**: perplexity + tokens/sec (`codellama-compress evaluate run`)
+- **Evaluation (smoke check)**: small perplexity + speed sanity check (`codellama-compress evaluate run`)
 - **Speculative decoding**: draft proposes, target verifies (`codellama-compress util speculative`)
 - **Export bundle**: generates vLLM/Docker/GGUF helper scripts (`codellama-compress export bundle`)
 
@@ -121,7 +121,9 @@ Key knobs live in the CLI dataclasses:
 - `DistillConfig` in `src/codellama_compress/config.py` (also reused for fine-tune)
 - `GPTQConfig` in `src/codellama_compress/config.py` (also reused for AWQ calibration knobs)
 
-## Pipeline Stages
+## Pipeline Stages (conceptual)
+
+This is a high-level roadmap/checklist. Not every stage below is implemented in this repo today—see **Features → Implemented** for what’s actually available.
 
 ```
 1. Baseline Evaluation
