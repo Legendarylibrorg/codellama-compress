@@ -18,6 +18,7 @@ Notes:
 - `pyproject.toml` is the dependency source of truth.
 - `requirements.txt` is auto-generated (see `scripts/export_requirements.py`).
 - Only run models/repos you trust. Loading models with `trust_remote_code=True` can execute arbitrary code.
+- Run artifacts can include environment metadata (e.g. `pip freeze`, `nvidia-smi` on Linux). Use `--no-env-report` on run commands if you plan to share outputs publicly.
 - Architecture overview: `docs/architecture.md`.
 - This CLI now uses Python stdlib `argparse` (no Typer/Rich/PyYAML/Numpy/Scipy).
 

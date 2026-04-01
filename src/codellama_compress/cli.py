@@ -51,12 +51,14 @@ def _start_run(
     run_id: str | None,
     effective_config: dict,
     min_free_gb: float | None = None,
+    env_report: bool = True,
 ) -> Path:
     out_root_p = Path(out_root)
     run_dir = new_run_dir(out_root_p, run_id=run_id)
     if min_free_gb is not None:
         assert_disk_budget(root=out_root_p, min_free_gb=min_free_gb)
-    write_env_report(run_dir)
+    if env_report:
+        write_env_report(run_dir)
     save_effective_config(run_dir, effective_config)
     return run_dir
 
@@ -77,6 +79,7 @@ def _cmd_distill_run(args: argparse.Namespace) -> int:
         run_id=args.run_id,
         effective_config={"dataset": ds_cfg, "distill": d_cfg},
         min_free_gb=args.min_free_gb,
+        env_report=args.env_report,
     )
 
     from .distill import run_distillation
@@ -104,6 +107,7 @@ def _cmd_prune_mask_mlp(args: argparse.Namespace) -> int:
             "prune": {"ratio": ratio, "method": method},
             "model_dir": str(args.model_dir),
         },
+        env_report=args.env_report,
     )
 
     from .prune import run_mlp_mask_prune
@@ -125,6 +129,7 @@ def _cmd_finetune_run(args: argparse.Namespace) -> int:
         run_id=args.run_id,
         effective_config={"dataset": ds_cfg, "finetune": ft_cfg, "model_dir": str(args.model_dir)},
         min_free_gb=args.min_free_gb,
+        env_report=args.env_report,
     )
 
     from .finetune import run_finetune
@@ -153,6 +158,7 @@ def _cmd_quant_gptq(args: argparse.Namespace) -> int:
         run_id=args.run_id,
         effective_config={"dataset": ds_cfg, "gptq": q_cfg, "model_dir": str(args.model_dir)},
         min_free_gb=args.min_free_gb,
+        env_report=args.env_report,
     )
 
     from .quantize_gptq import run_gptq_quantization
@@ -181,6 +187,7 @@ def _cmd_quant_awq(args: argparse.Namespace) -> int:
         run_id=args.run_id,
         effective_config={"dataset": ds_cfg, "awq": q_cfg, "model_dir": str(args.model_dir)},
         min_free_gb=args.min_free_gb,
+        env_report=args.env_report,
     )
 
     from .quantize_awq import run_awq_quantization
@@ -292,6 +299,12 @@ def build_parser() -> argparse.ArgumentParser:
     distill_run.add_argument("--out-root", default="output/runs")
     distill_run.add_argument("--config", default=None, help="JSON config file.")
     distill_run.add_argument(
+        "--env-report",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
+    )
+    distill_run.add_argument(
         "--min-free-gb",
         type=float,
         default=None,
@@ -317,6 +330,12 @@ def build_parser() -> argparse.ArgumentParser:
     prune_mask.add_argument("--ratio", type=float, default=0.25)
     prune_mask.add_argument("--method", default="magnitude")
     prune_mask.add_argument("--config", default=None, help="JSON config file.")
+    prune_mask.add_argument(
+        "--env-report",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
+    )
     prune_mask.set_defaults(func=_cmd_prune_mask_mlp)
 
     # finetune run
@@ -329,6 +348,12 @@ def build_parser() -> argparse.ArgumentParser:
     finetune_run.add_argument("--run-id", default=None)
     finetune_run.add_argument("--out-root", default="output/runs")
     finetune_run.add_argument("--config", default=None, help="JSON config file.")
+    finetune_run.add_argument(
+        "--env-report",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
+    )
     finetune_run.add_argument(
         "--min-free-gb",
         type=float,
@@ -352,6 +377,12 @@ def build_parser() -> argparse.ArgumentParser:
     qg.add_argument("--out-root", default="output/runs")
     qg.add_argument("--config", default=None, help="JSON config file.")
     qg.add_argument(
+        "--env-report",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
+    )
+    qg.add_argument(
         "--min-free-gb",
         type=float,
         default=None,
@@ -370,6 +401,12 @@ def build_parser() -> argparse.ArgumentParser:
     qa.add_argument("--run-id", default=None)
     qa.add_argument("--out-root", default="output/runs")
     qa.add_argument("--config", default=None, help="JSON config file.")
+    qa.add_argument(
+        "--env-report",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
+    )
     qa.add_argument(
         "--min-free-gb",
         type=float,

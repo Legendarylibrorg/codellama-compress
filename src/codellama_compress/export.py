@@ -36,6 +36,17 @@ def write_export_bundle(
         "WORKDIR /app\n"
         "RUN apt-get update && apt-get install -y python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*\n"
         "COPY . /app\n"
+        "RUN python3 -m pip install --upgrade pip && pip install . && pip install vllm\n"
+        f"EXPOSE {port}\n"
+        f'CMD ["bash", "output/export/vllm_server.sh"]\n'
+    )
+
+    # Dockerfile with optional quant deps (larger supply-chain footprint)
+    (out_dir / "Dockerfile.quant").write_text(
+        "FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04\n"
+        "WORKDIR /app\n"
+        "RUN apt-get update && apt-get install -y python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*\n"
+        "COPY . /app\n"
         'RUN python3 -m pip install --upgrade pip && pip install ".[quant]" && pip install vllm\n'
         f"EXPOSE {port}\n"
         f'CMD ["bash", "output/export/vllm_server.sh"]\n'
@@ -72,6 +83,9 @@ def write_export_bundle(
     (out_dir / "README.md").write_text(
         "# Export bundle\n\n"
         "This folder contains helper artifacts for serving and exporting.\n\n"
+        "## Docker\n\n"
+        "- `Dockerfile`: installs the project + `vllm` only (smaller dependency footprint).\n"
+        "- `Dockerfile.quant`: also installs `.[quant]` (larger footprint; use only if needed).\n\n"
         "## Speculative decoding\n\n"
         "Run locally via the CLI:\n\n"
         "```bash\n"
