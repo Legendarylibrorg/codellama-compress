@@ -36,8 +36,7 @@ jobs:
 
       - name: Dependency Vulnerability Audit
         run: |
-          if [ -f requirements.txt ]; then
-            pip-audit --no-deps --disable-pip -r requirements.txt
-          else
-            echo "No requirements.txt found; skipping pip-audit"
-          fi
+          # Audit the *actual* project dependencies from pyproject by installing the package,
+          # rather than relying on a potentially stale requirements.txt.
+          python -m pip install -e .
+          pip-audit

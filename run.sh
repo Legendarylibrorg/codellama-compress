@@ -1,245 +1,39 @@
 #!/usr/bin/env bash
 set -e
 
-########################################
-# CONFIG
-########################################
-
-# Model settings
-BASE_MODEL="codellama/CodeLlama-7b-hf"
-INSTRUCT_MODEL="codellama/CodeLlama-7b-Instruct-hf"
-USE_INSTRUCT=true
-
-# Output directories
-OUT="./output"
-DISTILL="$OUT/distilled"
-PRUNE="$OUT/pruned"
-QUANT="$OUT/quantized"
-FINETUNE="$OUT/finetuned"
-EXPORT="$OUT/export"
-EVAL="$OUT/eval"
-
-# Distillation settings
-DISTILL_STEPS=1000
-DISTILL_LR=2e-5
-TEACHER_MODEL="codellama/CodeLlama-13b-hf"  # Larger model as teacher
-EMA_DECAY=0.9999
-
-# Pruning settings
-PRUNE_RATIO=0.25          # Remove 25% of neurons
-PRUNE_METHOD="wanda"       # wanda, magnitude, or sparsegpt
-
-# Quantization settings
-QUANT_BITS=4               # 4 or 8
-QUANT_METHOD="awq"         # awq, gptq, or gguf
-CALIBRATION_SAMPLES=128
-
-# Fine-tuning after pruning
-FINETUNE_STEPS=500
-FINETUNE_LR=1e-5
-FINETUNE_DATASET="bigcode/starcoderdata"
-
-# Evaluation
-EVAL_HUMANEVAL=true
-EVAL_MBPP=true
-EVAL_SAMPLES=50
-
-# Quality thresholds
-MIN_PASS_AT_1_RETENTION=0.85   # Must retain 85% of pass@1
-MAX_PERPLEXITY_INCREASE=1.5    # Max 50% perplexity increase
-
-# Advanced optimizations
-USE_FLASH_ATTENTION=true
-USE_KV_CACHE_QUANT=true
-SPECULATIVE_DRAFT_MODEL="codellama/CodeLlama-7b-hf"  # Smaller model for speculative decoding
-SPECULATIVE_NUM_TOKENS=5
-
-# GGUF export options (multiple quantization levels)
-GGUF_QUANTS="q2_k,q3_k_m,q4_k_m,q5_k_m,q8_0"
-
-# Serving optimizations
-USE_CONTINUOUS_BATCHING=true
-MAX_BATCH_SIZE=8
-
-########################################
-# ENV SETUP
-########################################
-
-echo "=== SETTING UP ENVIRONMENT ==="
+echo "=== SETTING UP ENVIRONMENT (venv + editable install) ==="
 
 if [ ! -d "venv" ]; then
-    python3 -m venv venv
+  python3 -m venv venv
 fi
 source venv/bin/activate
+python -m pip install --upgrade pip
 
-pip install --upgrade pip
+# Install this repo (and dev tools if available)
+pip install -e ".[dev]" 2>/dev/null || pip install -e .
 
-pip install \
-    torch torchvision \
-    transformers>=4.36.0 \
-    accelerate>=0.25.0 \
-    datasets \
-    safetensors \
-    sentencepiece \
-    protobuf \
-    tqdm \
-    peft \
-    bitsandbytes \
-    scipy \
-    evaluate
+echo "=== DISTILL (teacher -> student) ==="
 
-# Flash Attention 2
-pip install flash-attn --no-build-isolation 2>/dev/null || echo "Flash Attention not available (requires Ampere+ GPU)"
+# You can override these via a config file passed to the CLI.
+RUN_ID="${RUN_ID:-}"
+OUT_ROOT="${OUT_ROOT:-output/runs}"
 
-# Quantization libraries
-pip install auto-gptq>=0.6.0 autoawq>=0.1.8
+codellama-compress distill run \
+  ${RUN_ID:+--run-id "$RUN_ID"} \
+  --out-root "$OUT_ROOT"
 
-# GGUF conversion
-pip install llama-cpp-python gguf 2>/dev/null || echo "llama-cpp-python install failed, GGUF export may not work"
+echo "=== QUANTIZE (GPTQ) ==="
 
-# HumanEval benchmark
-pip install human-eval 2>/dev/null || echo "human-eval not available"
+LATEST_RUN="$(ls -1 "$OUT_ROOT" | sort | tail -n 1)"
+MODEL_DIR="$OUT_ROOT/$LATEST_RUN/distilled"
 
-# vLLM for serving (optional)
-pip install vllm 2>/dev/null || echo "vLLM not available"
+codellama-compress quantize gptq \
+  --model-dir "$MODEL_DIR" \
+  ${RUN_ID:+--run-id "$RUN_ID"} \
+  --out-root "$OUT_ROOT"
 
-mkdir -p "$OUT" "$DISTILL" "$PRUNE" "$QUANT" "$FINETUNE" "$EXPORT" "$EVAL"
-
-########################################
-# GENERATE BASELINE EVALUATION
-########################################
-
-echo "=== BASELINE EVALUATION ==="
-
-python3 << 'PY'
-import torch
-import json
-import os
-import time
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from tqdm import tqdm
-
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-USE_INSTRUCT = os.environ.get("USE_INSTRUCT", "true").lower() == "true"
-BASE_MODEL = os.environ.get("INSTRUCT_MODEL" if USE_INSTRUCT else "BASE_MODEL", 
-                            "codellama/CodeLlama-7b-Instruct-hf")
-EVAL_DIR = os.environ.get("EVAL", "./output/eval")
-
-os.makedirs(f"{EVAL_DIR}/baseline", exist_ok=True)
-
-print(f"Loading baseline model: {BASE_MODEL}")
-tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
-model = AutoModelForCausalLM.from_pretrained(
-    BASE_MODEL,
-    torch_dtype=torch.float16,
-    device_map="auto",
-    trust_remote_code=True,
-)
-
-# Test prompts for code generation
-test_prompts = [
-    "def fibonacci(n):",
-    "def binary_search(arr, target):",
-    "def quicksort(arr):",
-    "class LinkedList:",
-    "def merge_sort(arr):",
-    "async def fetch_url(url):",
-    "def validate_email(email):",
-    "class BinaryTree:",
-]
-
-results = {
-    "model": BASE_MODEL,
-    "completions": [],
-    "inference_times": [],
-    "tokens_per_second": [],
-}
-
-print("Generating baseline completions...")
-for prompt in tqdm(test_prompts):
-    inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
-    
-    start = time.time()
-    with torch.inference_mode():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=128,
-            temperature=0.2,
-            top_p=0.95,
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id,
-        )
-    elapsed = time.time() - start
-    
-    completion = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    num_tokens = outputs.shape[1] - inputs.input_ids.shape[1]
-    
-    results["completions"].append({
-        "prompt": prompt,
-        "completion": completion,
-        "tokens": num_tokens,
-    })
-    results["inference_times"].append(elapsed)
-    results["tokens_per_second"].append(num_tokens / elapsed if elapsed > 0 else 0)
-
-results["avg_time"] = sum(results["inference_times"]) / len(results["inference_times"])
-results["avg_tokens_per_sec"] = sum(results["tokens_per_second"]) / len(results["tokens_per_second"])
-
-# Compute perplexity on sample code
-print("Computing perplexity...")
-sample_code = '''
-def calculate_factorial(n):
-    """Calculate factorial of n recursively."""
-    if n <= 1:
-        return 1
-    return n * calculate_factorial(n - 1)
-
-def is_prime(n):
-    """Check if n is a prime number."""
-    if n < 2:
-        return False
-    for i in range(2, int(n ** 0.5) + 1):
-        if n % i == 0:
-            return False
-    return True
-'''
-
-inputs = tokenizer(sample_code, return_tensors="pt").to(DEVICE)
-with torch.inference_mode():
-    outputs = model(**inputs, labels=inputs.input_ids)
-    perplexity = torch.exp(outputs.loss).item()
-
-results["perplexity"] = perplexity
-
-# Model size
-param_count = sum(p.numel() for p in model.parameters())
-results["param_count"] = param_count
-results["param_count_b"] = param_count / 1e9
-
-# Save results
-with open(f"{EVAL_DIR}/baseline/metrics.json", "w") as f:
-    json.dump(results, f, indent=2)
-
-print(f"\nBaseline Results:")
-print(f"  Parameters: {results['param_count_b']:.2f}B")
-print(f"  Perplexity: {results['perplexity']:.2f}")
-print(f"  Avg inference time: {results['avg_time']*1000:.0f}ms")
-print(f"  Tokens/sec: {results['avg_tokens_per_sec']:.1f}")
-
-# Save sample completions
-with open(f"{EVAL_DIR}/baseline/completions.txt", "w") as f:
-    for item in results["completions"]:
-        f.write(f"=== {item['prompt']} ===\n")
-        f.write(item["completion"])
-        f.write("\n\n")
-
-print(f"Saved to {EVAL_DIR}/baseline/")
-
-# Cleanup
-del model
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
-PY
+echo "=== DONE ==="
+echo "Run directory: $OUT_ROOT/$LATEST_RUN"
 
 ########################################
 # KNOWLEDGE DISTILLATION (13B → 7B style transfer)

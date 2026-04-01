@@ -2,91 +2,100 @@
 
 Comprehensive pipeline for compressing and optimizing Meta's Code Llama 7B model while maintaining code generation quality. Includes state-of-the-art inference optimizations.
 
+## Linux-first quickstart
+
+```bash
+git clone <YOUR_REPO_URL_HERE>
+cd codellama-compress
+
+python3 -m venv venv
+source venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+```
+
+Notes:
+- `pyproject.toml` is the dependency source of truth.
+- `requirements.txt` is auto-generated (see `scripts/export_requirements.py`).
+- Only run models/repos you trust. Loading models with `trust_remote_code=True` can execute arbitrary code.
+- Architecture overview: `docs/architecture.md`.
+
+Run the pipeline:
+
+```bash
+# Distill (teacher -> student)
+codellama-compress distill run
+
+# Prune (MLP masking)
+codellama-compress prune mask-mlp --model-dir output/runs/<run_id>/distilled --ratio 0.25 --method magnitude
+
+# Finetune (post-prune recovery)
+codellama-compress finetune run --model-dir output/runs/<run_id>/pruned
+
+# Quantize (GPTQ/AWQ require extras)
+pip install -e ".[quant]"
+codellama-compress quantize gptq --model-dir output/runs/<run_id>/finetuned
+codellama-compress quantize awq --model-dir output/runs/<run_id>/finetuned
+
+# Evaluate
+codellama-compress evaluate run --model-dir output/runs/<run_id>/finetuned
+
+# Export bundle (vLLM/Docker/GGUF helper scripts)
+codellama-compress export bundle --model-dir output/runs/<run_id>/finetuned --out-dir output/export
+```
+
+Start a vLLM server (after exporting) and query it:
+
+```bash
+bash ./output/export/vllm_server.sh
+
+curl http://localhost:8000/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"codellama","prompt":"def fibonacci(n):","max_tokens":100}'
+```
+
 ## Features
 
-### Knowledge Distillation
-- **13B → 7B Transfer** - Learn from larger Code Llama 13B teacher
-- **Temperature-scaled KL divergence** - Soft label distillation
-- **EMA Weights** - Exponential moving average for stability
-- **Cosine LR Schedule** - With warmup for smooth training
+### Implemented
 
-### Structured Pruning
-- **WANDA Pruning** - Weight AND Activation based importance
-- **Magnitude Pruning** - Simple L1-based pruning
-- **MLP Layer Targeting** - Focus on gate_proj/up_proj layers
-- **Configurable Ratio** - Default 25% reduction
+- **Distillation**: teacher → student KL distillation (`codellama-compress distill run`)
+- **Pruning (masking)**: shape-preserving MLP neuron masking (`codellama-compress prune mask-mlp`)
+- **Recovery fine-tune**: post-prune fine-tuning (`codellama-compress finetune run`)
+- **Evaluation**: perplexity + tokens/sec (`codellama-compress evaluate run`)
+- **Speculative decoding**: draft proposes, target verifies (`codellama-compress util speculative`)
+- **Export bundle**: generates vLLM/Docker/GGUF helper scripts (`codellama-compress export bundle`)
 
-### Quantization
-- **AWQ** - Activation-aware Weight Quantization (4-bit)
-- **GPTQ** - Post-training quantization with calibration
-- **bitsandbytes** - NF4/INT8 quantization fallback
-- **Layer-wise Quantization** - Different bits for different layers
-- **Calibration Dataset** - StarCoder data for calibration
+### Optional (extras)
 
-### Inference Optimizations
-- **Speculative Decoding** - 2-3x speedup with draft model
-- **KV Cache Quantization** - ~50% VRAM reduction for KV cache
-- **Flash Attention 2** - Memory-efficient attention kernels
-- **Continuous Batching** - High throughput with vLLM
-- **Attention Optimizations** - Sliding window, GQA, token merging
+- **GPTQ quantization**: install `pip install -e '.[quant]'`, then `codellama-compress quantize gptq ...`
+- **AWQ quantization**: install `pip install -e '.[quant]'`, then `codellama-compress quantize awq ...`
+- **bitsandbytes bundle**: `codellama-compress quantize bnb ...` (load-time quantization)
 
-### Quality Evaluation
-- **Perplexity** - Language modeling quality
-- **HumanEval Benchmark** - Actual code execution tests
-- **Pass@k** - HumanEval/MBPP integration
-- **Inference Speed** - Tokens per second measurement
-- **Per-stage Evaluation** - Track quality through pipeline
+### Planned
 
-### Export & Deployment
-- **Multiple GGUF Formats** - q2_k, q3_k_m, q4_k_m, q5_k_m, q8_0
-- **ONNX** - For ONNX Runtime
-- **vLLM Server** - High-throughput serving with OpenAI API
-- **Docker Deployment** - Ready-to-use containers
-- **Ollama Integration** - Modelfile for easy deployment
-- **LoRA Compatibility** - Verified adapter support
+- KV cache quantization
+- Flash-Attn integration toggles
+- HumanEval/MBPP pass@k evaluation
+- ONNX export
 
 ## Quick Start
 
 ```bash
-chmod +x run.sh
-./run.sh
+See **Linux-first quickstart** above.
 ```
+
+For Linux + RTX 4090 guidance, see `docs/linux-4090.md`.
 
 ## Configuration
 
-Edit `run.sh` to adjust:
+Prefer using a config file (YAML/JSON) and overriding with CLI flags. A full config system is supported by the CLI commands.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| **Model** | | |
-| `BASE_MODEL` | `codellama/CodeLlama-7b-hf` | Base model to compress |
-| `TEACHER_MODEL` | `codellama/CodeLlama-13b-hf` | Teacher for distillation |
-| `USE_INSTRUCT` | `true` | Use instruct variant |
-| **Distillation** | | |
-| `DISTILL_STEPS` | `1000` | Distillation training steps |
-| `DISTILL_LR` | `2e-5` | Learning rate |
-| `EMA_DECAY` | `0.9999` | EMA decay rate |
-| **Pruning** | | |
-| `PRUNE_RATIO` | `0.25` | Fraction of neurons to remove |
-| `PRUNE_METHOD` | `wanda` | wanda, magnitude, or sparsegpt |
-| **Quantization** | | |
-| `QUANT_BITS` | `4` | 4 or 8 bit quantization |
-| `QUANT_METHOD` | `awq` | awq, gptq, or bnb |
-| `CALIBRATION_SAMPLES` | `128` | Samples for calibration |
-| **Fine-tuning** | | |
-| `FINETUNE_STEPS` | `500` | Post-pruning recovery steps |
-| `FINETUNE_LR` | `1e-5` | Fine-tuning learning rate |
-| **Quality** | | |
-| `MIN_PASS_AT_1_RETENTION` | `0.85` | Minimum Pass@1 retention |
-| `MAX_PERPLEXITY_INCREASE` | `1.5` | Maximum perplexity ratio |
-| **Advanced Optimizations** | | |
-| `USE_FLASH_ATTENTION` | `true` | Enable Flash Attention 2 |
-| `USE_KV_CACHE_QUANT` | `true` | Enable KV cache quantization |
-| `SPECULATIVE_DRAFT_MODEL` | `codellama/CodeLlama-7b-hf` | Draft model for speculative decoding |
-| `SPECULATIVE_NUM_TOKENS` | `5` | Tokens to speculate |
-| `GGUF_QUANTS` | `q2_k,q3_k_m,q4_k_m,q5_k_m,q8_0` | GGUF quantization levels |
-| `USE_CONTINUOUS_BATCHING` | `true` | Enable vLLM batching |
-| `MAX_BATCH_SIZE` | `8` | Maximum batch size |
+`run.sh` is kept as a thin wrapper for convenience; the source of truth is the Python CLI.
+
+Key knobs live in the CLI dataclasses:
+- `DatasetConfig` in `src/codellama_compress/config.py`
+- `DistillConfig` in `src/codellama_compress/config.py` (also reused for fine-tune)
+- `GPTQConfig` in `src/codellama_compress/config.py` (also reused for AWQ calibration knobs)
 
 ## Pipeline Stages
 
@@ -95,14 +104,13 @@ Edit `run.sh` to adjust:
    └── Measure original model quality
    └── 📊 Perplexity, speed, completions
 
-2. Knowledge Distillation (13B → 7B)
-   └── Temperature-scaled soft labels
-   └── EMA weight averaging
+2. Knowledge Distillation (teacher → student)
+   └── Temperature-scaled soft labels (KL)
    └── 📊 EVALUATE: Compare to baseline
 
-3. Structured Pruning (WANDA)
-   └── Target MLP layers (gate_proj, up_proj)
-   └── Remove 25% of neurons
+3. Structured Pruning (MLP masking)
+   └── Target MLP layers (`gate_proj`, `up_proj`)
+   └── Mask ~25% of intermediate neurons (shape-preserving)
    └── 📊 EVALUATE: Measure quality loss
 
 4. Fine-tuning
@@ -150,39 +158,18 @@ Edit `run.sh` to adjust:
 
 ```
 output/
-├── eval/
-│   ├── baseline_metrics.json        # Original model metrics
-│   ├── distillation_metrics.json    # Post-distillation metrics
-│   ├── pruning_metrics.json         # Post-pruning metrics
-│   ├── finetuning_metrics.json      # Post-finetuning metrics
-│   ├── quantization_metrics.json    # Quantization metrics
-│   ├── lora_compatibility.json      # LoRA support verification
-│   ├── speculative_decoding.json    # Speculative decoding stats
-│   ├── kv_cache_savings.json        # KV cache memory savings
-│   ├── humaneval_results.json       # HumanEval benchmark results
-│   ├── gguf_estimates.json          # GGUF size estimates
-│   ├── flash_attention_benchmark.json
-│   ├── deployment_info.json         # Deployment configuration
-│   ├── layerwise_quant_configs.json # Layer-wise quant options
-│   ├── attention_savings.json       # Attention optimization stats
-│   └── pipeline_summary.json        # Comprehensive summary
-├── distilled/              # Distilled model
-├── pruned/                 # Pruned model
-├── finetuned/              # Fine-tuned model
-├── quantized/              # Final quantized model
-└── export/
-    ├── speculative_decoding.py      # Speculative decoding module
-    ├── kv_cache_quant.py            # KV cache quantization
-    ├── optimized_inference.py       # Optimized inference wrapper
-    ├── vllm_server.sh               # vLLM server script
-    ├── vllm_inference.py            # vLLM Python module
-    ├── convert_gguf.sh              # GGUF conversion script
-    ├── Modelfile                    # Ollama Modelfile
-    ├── Dockerfile                   # Docker deployment
-    ├── docker-compose.yml           # Docker Compose config
-    ├── layerwise_quant.py           # Layer-wise quantization
-    ├── attention_optimization.py    # Attention optimizations
-    └── README.md                    # Export instructions
+└── runs/
+    └── <run_id>/
+        ├── config.json
+        ├── env.json
+        ├── pip_freeze.txt
+        ├── nvidia-smi.txt              # Linux only
+        ├── git_state.json
+        ├── distilled/                  # HF model dir
+        ├── pruned/                     # HF model dir
+        ├── finetuned/                  # HF model dir
+        ├── quantized-gptq/             # HF model dir (if run)
+        └── quantized-awq/              # HF model dir (if run)
 ```
 
 ## Usage Examples
@@ -206,17 +193,17 @@ print(tokenizer.decode(outputs[0]))
 
 ### Speculative Decoding (2-3x faster)
 ```python
-from output.export.speculative_decoding import SpeculativeDecoder
+from codellama_compress.speculative import speculative_generate
 
-decoder = SpeculativeDecoder(
-    target_model_path="./output/quantized",
-    draft_model_path="codellama/CodeLlama-7b-hf",
+output, stats = speculative_generate(
+    prompt="def fibonacci(n):",
+    target_model="./output/quantized",
+    draft_model="codellama/CodeLlama-7b-hf",
     num_speculative_tokens=5,
+    max_new_tokens=256,
 )
-
-output, stats = decoder.generate("def fibonacci(n):", max_new_tokens=256)
-print(f"Speed: {stats['tokens_per_second']:.1f} tok/s")
-print(f"Acceptance rate: {stats['acceptance_rate']:.1%}")
+print(f"Speed: {stats.tokens_per_second:.1f} tok/s")
+print(f"Acceptance rate: {stats.acceptance_rate:.1%}")
 ```
 
 ### vLLM Serving (High Throughput)

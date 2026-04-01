@@ -1,37 +1,15 @@
-torch==2.11.0
-torchvision==0.26.0
-transformers==5.4.0
-accelerate==1.13.0
-datasets==4.8.4
-safetensors==0.4.0
-sentencepiece==0.2.1
-protobuf==5.29.6
-tqdm==4.67.3
-peft==0.18.1
-bitsandbytes==0.41.0
-scipy==1.11.0
-numpy==1.24.0
+# AUTO-GENERATED from pyproject.toml
+# Do not edit by hand. Regenerate with:
+#   python scripts/export_requirements.py
 
-# Quantization
-auto-gptq==0.6.0
-autoawq==0.2.9
-
-# GGUF conversion
-gguf==0.18.0
-
-# Evaluation
-evaluate==0.4.6
-# human-eval  # Install separately: pip install human-eval
-
-# Flash Attention (requires Ampere+ GPU, CUDA 11.6+)
-# Install with: pip install flash-attn --no-build-isolation
-# flash-attn>=2.3.0
-
-# llama.cpp Python bindings for GGUF
-# llama-cpp-python>=0.2.0
-
-# vLLM for high-throughput serving
-# vllm>=0.2.0
-
-# Docker SDK (optional, for programmatic container management)
-# docker>=6.0.0
+torch>=2.1
+transformers>=4.40
+accelerate>=0.30
+datasets>=2.18
+safetensors>=0.4
+tqdm>=4.66
+numpy>=1.24
+scipy>=1.11
+pyyaml>=6.0
+typer>=0.12
+rich>=13.7

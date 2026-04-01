@@ -10,6 +10,16 @@
 - Dependency audit (`pip-audit`)
 - Project tests/linting where applicable
 
+## Dependency management
+
+- `pyproject.toml` is the **source of truth** for dependencies.
+- `requirements.txt` is **auto-generated** for tooling compatibility (e.g. Dependabot).
+  Regenerate it with:
+
+```bash
+python scripts/export_requirements.py
+```
+
 ## Pull Requests
 - Keep PRs small and reviewable.
 - Explain purpose, scope, and test results.
