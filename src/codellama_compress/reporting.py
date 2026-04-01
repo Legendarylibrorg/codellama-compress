@@ -68,3 +68,53 @@ def write_metrics(run_dir: Path, *, stage: str, metrics: dict[str, Any]) -> None
 
 def dataclass_dict(dc: Any) -> dict[str, Any]:
     return asdict(dc) if hasattr(dc, "__dataclass_fields__") else dict(dc)
+
+
+def dataset_provenance(dataset_cfg: Any) -> dict[str, Any]:
+    """
+    Best-effort dataset identity without forcing downloads.
+    """
+    if not hasattr(dataset_cfg, "name"):
+        return {}
+
+    out: dict[str, Any] = {"dataset_cfg": dataclass_dict(dataset_cfg)}
+    try:
+        from datasets import load_dataset_builder  # type: ignore
+
+        b = load_dataset_builder(dataset_cfg.name, dataset_cfg.config)
+        info = getattr(b, "info", None)
+        out["builder"] = {
+            "dataset_name": getattr(info, "dataset_name", None) if info else None,
+            "config_name": getattr(b, "config_name", None),
+            "version": str(getattr(info, "version", None)) if info else None,
+        }
+    except Exception:
+        pass
+    return out
+
+
+def write_samples_jsonl(
+    *,
+    run_dir: Path,
+    stage: str,
+    model,
+    tokenizer,
+    prompts: list[str],
+    max_new_tokens: int = 128,
+) -> None:
+    path = run_dir / "logs" / "samples.jsonl"
+    model.eval()
+    with jsonl_writer(path) as write:
+        for prompt in prompts:
+            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+            with torch.inference_mode():
+                out = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+            text = tokenizer.decode(out[0], skip_special_tokens=True)
+            write(
+                {
+                    "stage": stage,
+                    "prompt": prompt,
+                    "text": text,
+                    "max_new_tokens": max_new_tokens,
+                }
+            )

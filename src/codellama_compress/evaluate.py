@@ -11,7 +11,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import save_json
-from .reporting import write_metrics, write_provenance
+from .reporting import write_metrics, write_provenance, write_samples_jsonl
 
 
 @dataclass(frozen=True)
@@ -97,7 +97,25 @@ def evaluate_model_dir(model_dir: Path, out_path: Path | None = None) -> EvalRes
 
 
 def evaluate_into_run_dir(*, run_dir: Path, model_dir: Path) -> EvalResult:
+    tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir, device_map="auto", torch_dtype=torch.float16
+    )
     write_provenance(run_dir, extra={"stage": "evaluate"})
-    res = evaluate_model_dir(model_dir)
+    device = model.device
+    ppl = compute_perplexity(model, tok, _default_texts(), device)
+    tps, ms = measure_speed(model, tok, "def fibonacci(n):", device)
+    res = EvalResult(model=str(model_dir), perplexity=ppl, tokens_per_second=tps, avg_time_ms=ms)
+    write_samples_jsonl(
+        run_dir=run_dir,
+        stage="evaluate",
+        model=model,
+        tokenizer=tok,
+        prompts=[
+            "def fibonacci(n):",
+            "def binary_search(arr, target):",
+            "def quicksort(arr):",
+        ],
+    )
     write_metrics(run_dir, stage="evaluate", metrics=res.to_dict())
     return res

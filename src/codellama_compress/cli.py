@@ -115,6 +115,31 @@ def _cmd_prune_mask_mlp(args: argparse.Namespace) -> int:
     model_dir = _p(args.model_dir)
     out_dir = run_dir / "pruned"
     run_mlp_mask_prune(in_model_dir=model_dir, out_dir=out_dir, ratio=ratio, method=method)
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        from .reporting import write_samples_jsonl
+
+        tok = AutoTokenizer.from_pretrained(out_dir, use_fast=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            out_dir,
+            device_map="auto",
+            torch_dtype=torch.float16 if torch.cuda.is_available() else None,
+        )
+        write_samples_jsonl(
+            run_dir=run_dir,
+            stage="prune",
+            model=model,
+            tokenizer=tok,
+            prompts=[
+                "def fibonacci(n):",
+                "def binary_search(arr, target):",
+                "def quicksort(arr):",
+            ],
+        )
+    except Exception:
+        pass
     print(f"Done. Pruned model at: {out_dir}")
     return 0
 

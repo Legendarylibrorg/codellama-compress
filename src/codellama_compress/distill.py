@@ -18,7 +18,13 @@ from transformers import (
 )
 
 from .config import DatasetConfig, DistillConfig, save_json
-from .reporting import jsonl_writer, write_metrics, write_provenance
+from .reporting import (
+    dataset_provenance,
+    jsonl_writer,
+    write_metrics,
+    write_provenance,
+    write_samples_jsonl,
+)
 
 
 def _precision_kwargs(precision: str) -> dict:
@@ -71,7 +77,7 @@ def run_distillation(
     cfg: DistillConfig,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_provenance(run_dir, extra={"stage": "distill"})
+    write_provenance(run_dir, extra={"stage": "distill", **dataset_provenance(dataset_cfg)})
     steps_log_path = run_dir / "logs" / "distill_train_steps.jsonl"
 
     accelerator = Accelerator(**_precision_kwargs(cfg.precision))
@@ -236,6 +242,17 @@ def run_distillation(
         unwrapped = accelerator.unwrap_model(student)
         unwrapped.save_pretrained(out_dir, safe_serialization=True)
         tokenizer.save_pretrained(out_dir)
+        write_samples_jsonl(
+            run_dir=run_dir,
+            stage="distill",
+            model=unwrapped,
+            tokenizer=tokenizer,
+            prompts=[
+                "def fibonacci(n):",
+                "def binary_search(arr, target):",
+                "def quicksort(arr):",
+            ],
+        )
         write_metrics(
             run_dir,
             stage="distill",
