@@ -38,7 +38,7 @@ Typical stage directories:
 
 Some commands require extras:
 
-- `pip install ".[dev]"`: lint/test tooling
+- Dev tooling: `pip install -r requirements-dev.txt`
 - `pip install ".[quant]"`: GPTQ/AWQ/bitsandbytes helpers
 
 ## Notes

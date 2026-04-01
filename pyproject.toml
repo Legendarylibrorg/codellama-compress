@@ -20,11 +20,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-  "ruff>=0.6.0",
-  "black>=24.0.0",
-  "pytest>=8.0.0",
-]
 quant = [
   "auto-gptq>=0.6.0",
   "autoawq>=0.2.0",

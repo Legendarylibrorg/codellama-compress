@@ -1,0 +1,8 @@
+# Development-only dependencies (not required to use the CLI).
+ruff>=0.6.0
+black>=24.0.0
+pytest>=8.0.0
+pre-commit>=3.0.0
+detect-secrets>=1.5.0
+pip-audit>=2.7.0
+
