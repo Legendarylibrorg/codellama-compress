@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import random
 from collections.abc import Iterable
 from pathlib import Path
 
-import numpy as np
 import torch
 from datasets import load_dataset
 from tqdm.auto import tqdm
@@ -27,13 +27,13 @@ def _iter_texts(dataset_cfg: DatasetConfig) -> Iterable[str]:
 
 def _build_calibration_data(tokenizer, dataset_cfg: DatasetConfig, cfg: GPTQConfig):
     gen = _iter_texts(dataset_cfg)
-    rng = np.random.default_rng(cfg.seed)
+    rng = random.Random(cfg.seed)
     data = []
     for _ in tqdm(range(cfg.calibration_samples), desc="Calibration samples"):
         text = next(gen)
         # truncate a random window for variety
         if len(text) > cfg.calibration_seq_len * 4:
-            start = int(rng.integers(0, max(1, len(text) - cfg.calibration_seq_len * 4)))
+            start = rng.randrange(0, max(1, len(text) - cfg.calibration_seq_len * 4))
             text = text[start : start + cfg.calibration_seq_len * 4]
         enc = tokenizer(
             text,

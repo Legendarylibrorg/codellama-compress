@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Iterable
 from dataclasses import asdict
 from pathlib import Path
 
-import numpy as np
 import torch
 from accelerate import Accelerator
 from datasets import load_dataset
@@ -101,6 +101,7 @@ def run_finetune(
 
     texts = iter(_iter_texts(dataset_cfg))
     losses: list[float] = []
+    recent = deque(maxlen=20)
     pbar = tqdm(range(cfg.steps), disable=not accelerator.is_local_main_process)
     model.train()
 
@@ -124,9 +125,11 @@ def run_finetune(
             scheduler.step()
             optimizer.zero_grad(set_to_none=True)
 
-        losses.append(float(loss.detach().cpu()) * cfg.grad_accum_steps)
-        if len(losses) >= 20:
-            pbar.set_postfix(loss=float(np.mean(losses[-20:])))
+        loss_value = float(loss.detach().cpu()) * cfg.grad_accum_steps
+        losses.append(loss_value)
+        recent.append(loss_value)
+        if recent:
+            pbar.set_postfix(loss=float(sum(recent) / len(recent)))
 
     if accelerator.is_local_main_process:
         unwrapped = accelerator.unwrap_model(model)

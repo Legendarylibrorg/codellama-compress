@@ -17,11 +17,6 @@ dependencies = [
   "datasets>=2.18",
   "safetensors>=0.4",
   "tqdm>=4.66",
-  "numpy>=1.24",
-  "scipy>=1.11",
-  "pyyaml>=6.0",
-  "typer>=0.12",
-  "rich>=13.7",
 ]
 
 [project.optional-dependencies]
@@ -37,7 +32,7 @@ quant = [
 ]
 
 [project.scripts]
-codellama-compress = "codellama_compress.cli:app"
+codellama-compress = "codellama_compress.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -52,10 +47,6 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = [
-  # Typer's recommended CLI style uses Option() in defaults.
-  "B008",
-  # Optional style preference; not worth churn for public CLI signatures.
-  "UP045",
   # Black is the formatter; line-length enforcement here is redundant/noisy.
   "E501",
 ]

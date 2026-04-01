@@ -5,11 +5,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-try:
-    import yaml  # type: ignore
-except Exception:  # pragma: no cover
-    yaml = None
-
 
 @dataclass(frozen=True)
 class DatasetConfig:
@@ -72,11 +67,7 @@ def load_config_file(path: Path) -> dict[str, Any]:
         raise FileNotFoundError(str(path))
     if path.suffix.lower() in {".json"}:
         return json.loads(path.read_text())
-    if path.suffix.lower() in {".yml", ".yaml"}:
-        if yaml is None:
-            raise RuntimeError("PyYAML is not installed; install pyyaml or use JSON config.")
-        return yaml.safe_load(path.read_text()) or {}
-    raise ValueError(f"Unsupported config file type: {path.suffix}")
+    raise ValueError(f"Unsupported config file type: {path.suffix}. Use JSON.")
 
 
 def merge_dataclass(dc: Any, updates: dict[str, Any]) -> Any:

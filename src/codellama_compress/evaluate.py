@@ -4,9 +4,9 @@ import time
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from statistics import fmean
 from typing import Any
 
-import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -75,8 +75,8 @@ def measure_speed(
         dt = time.time() - t0
         times.append(dt)
         toks.append(int(out.shape[1] - enc.input_ids.shape[1]))
-    avg_time = float(np.mean(times))
-    avg_tokens = float(np.mean(toks))
+    avg_time = float(fmean(times)) if times else 0.0
+    avg_tokens = float(fmean(toks)) if toks else 0.0
     return (avg_tokens / max(1e-9, avg_time), avg_time * 1000.0)
 
 

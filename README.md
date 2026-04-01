@@ -5,7 +5,7 @@ Comprehensive pipeline for compressing and optimizing Meta's Code Llama 7B model
 ## Linux-first quickstart
 
 ```bash
-git clone <YOUR_REPO_URL_HERE>
+git clone https://github.com/Legendarylibrorg/codellama-compress.git
 cd codellama-compress
 
 python3 -m venv venv
@@ -19,6 +19,7 @@ Notes:
 - `requirements.txt` is auto-generated (see `scripts/export_requirements.py`).
 - Only run models/repos you trust. Loading models with `trust_remote_code=True` can execute arbitrary code.
 - Architecture overview: `docs/architecture.md`.
+- This CLI now uses Python stdlib `argparse` (no Typer/Rich/PyYAML/Numpy/Scipy).
 
 Run the pipeline:
 
@@ -26,23 +27,28 @@ Run the pipeline:
 # Distill (teacher -> student)
 codellama-compress distill run
 
+# Get latest run directory (used below)
+RUN_DIR="$(ls -1dt output/runs/* | head -n 1)"
+
 # Prune (MLP masking)
-codellama-compress prune mask-mlp --model-dir output/runs/<run_id>/distilled --ratio 0.25 --method magnitude
+codellama-compress prune mask-mlp --model-dir "$RUN_DIR/distilled" --ratio 0.25 --method magnitude
 
 # Finetune (post-prune recovery)
-codellama-compress finetune run --model-dir output/runs/<run_id>/pruned
+codellama-compress finetune run --model-dir "$RUN_DIR/pruned"
 
 # Quantize (GPTQ/AWQ require extras)
 pip install -e ".[quant]"
-codellama-compress quantize gptq --model-dir output/runs/<run_id>/finetuned
-codellama-compress quantize awq --model-dir output/runs/<run_id>/finetuned
+codellama-compress quantize gptq --model-dir "$RUN_DIR/finetuned"
+codellama-compress quantize awq --model-dir "$RUN_DIR/finetuned"
 
 # Evaluate
-codellama-compress evaluate run --model-dir output/runs/<run_id>/finetuned
+codellama-compress evaluate run --model-dir "$RUN_DIR/finetuned"
 
 # Export bundle (vLLM/Docker/GGUF helper scripts)
-codellama-compress export bundle --model-dir output/runs/<run_id>/finetuned --out-dir output/export
+codellama-compress export bundle --model-dir "$RUN_DIR/finetuned" --out-dir output/export
 ```
+
+Tip: the long-running commands include disk safety guards (see `--help` for `--min-free-gb` and `--max-run-dir-gb`).
 
 Start a vLLM server (after exporting) and query it:
 
@@ -88,7 +94,7 @@ For Linux + RTX 4090 guidance, see `docs/linux-4090.md`.
 
 ## Configuration
 
-Prefer using a config file (YAML/JSON) and overriding with CLI flags. A full config system is supported by the CLI commands.
+Prefer using a config file (JSON) and overriding with CLI flags. A full config system is supported by the CLI commands.
 
 `run.sh` is kept as a thin wrapper for convenience; the source of truth is the Python CLI.
 

@@ -6,6 +6,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from shutil import disk_usage
 from typing import Any
 
 import torch
@@ -81,3 +82,36 @@ def safe_symlink(src: Path, dst: Path) -> None:
     except Exception:
         # Fall back silently; symlinks can be restricted on some filesystems.
         pass
+
+
+def dir_size_bytes(path: Path) -> int:
+    if not path.exists():
+        return 0
+    total = 0
+    for p in path.rglob("*"):
+        try:
+            if p.is_file() and not p.is_symlink():
+                total += p.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def assert_disk_budget(
+    *,
+    root: Path,
+    min_free_gb: float | None = None,
+    max_dir_gb: float | None = None,
+    dir_path: Path | None = None,
+) -> None:
+    usage = disk_usage(str(root))
+    free_gb = usage.free / (1024**3)
+    if min_free_gb is not None and free_gb < min_free_gb:
+        raise RuntimeError(f"Low disk space: {free_gb:.1f}GB free (< {min_free_gb}GB)")
+
+    if max_dir_gb is not None and dir_path is not None:
+        size_gb = dir_size_bytes(dir_path) / (1024**3)
+        if size_gb > max_dir_gb:
+            raise RuntimeError(
+                f"Output too large: {size_gb:.1f}GB in {dir_path} (> {max_dir_gb}GB)"
+            )
