@@ -61,6 +61,13 @@ pip install ".[eval]"
 codellama-compress evaluate benchmark --model-dir "$RUN_DIR/finetuned" --tasks humaneval,mbpp
 ```
 
+Optional: code benchmarks with execution (Linux-first; runs generated code):
+
+```bash
+codellama-compress evaluate code --model-dir "$RUN_DIR/finetuned" --suite humaneval --k 10
+codellama-compress evaluate code --model-dir "$RUN_DIR/finetuned" --suite mbpp --k 10
+```
+
 Start a vLLM server (after exporting) and query it:
 
 ```bash

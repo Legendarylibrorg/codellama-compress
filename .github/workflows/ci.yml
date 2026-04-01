@@ -58,3 +58,22 @@ jobs:
       - name: Smoke import benchmarks
         run: python -c "import codellama_compress.benchmarks; print('ok')"
 
+  code-eval-import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Smoke import code eval
+        run: python -c "import codellama_compress.code_eval; import codellama_compress.code_exec; print('ok')"
+

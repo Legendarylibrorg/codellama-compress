@@ -279,6 +279,44 @@ def _cmd_evaluate_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_evaluate_code(args: argparse.Namespace) -> int:
+    from .code_eval import run_code_eval
+
+    run_dir = new_run_dir(Path(args.out_root), run_id=args.run_id)
+    if args.env_report:
+        write_env_report(run_dir)
+    save_effective_config(
+        run_dir,
+        {
+            "code_eval": {
+                "suite": args.suite,
+                "k": args.k,
+                "seed": args.seed,
+                "max_new_tokens": args.max_new_tokens,
+                "temperature": args.temperature,
+                "top_p": args.top_p,
+                "limit": args.limit,
+            },
+            "model_dir": str(args.model_dir),
+        },
+    )
+
+    res = run_code_eval(
+        run_dir=run_dir,
+        model_dir=Path(args.model_dir),
+        suite=args.suite,
+        k=args.k,
+        seed=args.seed,
+        max_new_tokens=args.max_new_tokens,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        limit=args.limit,
+    )
+    print(res)
+    print(f"Wrote code-eval results to {run_dir / 'code_eval' / args.suite}")
+    return 0
+
+
 def _cmd_export_bundle(args: argparse.Namespace) -> int:
     model_name = args.model_name
     port = args.port
@@ -523,6 +561,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write per-sample details JSONL (large).",
     )
     ev_bench.set_defaults(func=_cmd_evaluate_benchmark)
+
+    ev_code = ev_sp.add_parser(
+        "code",
+        help="Execute code benchmarks (HumanEval/MBPP) in a restricted subprocess (Linux-first).",
+    )
+    ev_code.add_argument("--model-dir", required=True)
+    ev_code.add_argument("--suite", choices=["humaneval", "mbpp"], required=True)
+    ev_code.add_argument("--k", type=int, default=10, help="Number of samples per problem.")
+    ev_code.add_argument("--seed", type=int, default=42)
+    ev_code.add_argument("--max-new-tokens", type=int, default=256)
+    ev_code.add_argument("--temperature", type=float, default=0.2)
+    ev_code.add_argument("--top-p", type=float, default=0.95)
+    ev_code.add_argument("--limit", type=int, default=None, help="Optional max problems.")
+    ev_code.add_argument("--out-root", default="output/runs")
+    ev_code.add_argument("--run-id", default=None)
+    ev_code.add_argument(
+        "--env-report",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Write env report files into the run dir (off by default for safety).",
+    )
+    ev_code.set_defaults(func=_cmd_evaluate_code)
 
     # export bundle
     ex = sp.add_parser("export", help="Generate helper artifacts for serving/export.")
