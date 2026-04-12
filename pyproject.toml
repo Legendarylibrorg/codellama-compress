@@ -13,7 +13,7 @@ authors = [{ name = "Contributors" }]
 dependencies = [
   "torch>=2.11.0",
   "transformers>=5.5.3",
-  "accelerate>=0.30",
+  "accelerate>=1.13.0",
   "datasets>=4.8.4",
   "safetensors>=0.4",
   "tqdm>=4.67.3",
