@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 quant = [
   "auto-gptq>=0.6.0",
-  "autoawq>=0.2.0",
+  "autoawq>=0.2.9",
   "bitsandbytes>=0.41.0",
 ]
 eval = [
