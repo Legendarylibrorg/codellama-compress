@@ -1,5 +1,5 @@
 # Development-only dependencies (not required to use the CLI).
-ruff>=0.6.0
+ruff>=0.15.12
 black>=24.0.0
 pytest>=8.0.0
 pre-commit>=4.6.0
