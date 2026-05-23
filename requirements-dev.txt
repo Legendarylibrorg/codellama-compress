@@ -1,6 +1,6 @@
 # Development-only dependencies (not required to use the CLI).
 ruff>=0.15.13
-black>=26.3.1
+black>=26.5.1
 pytest>=9.0.3
 pre-commit>=4.6.0
 detect-secrets>=1.5.0
