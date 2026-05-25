@@ -18,6 +18,7 @@ from transformers import (
 )
 
 from .config import DatasetConfig, DistillConfig, save_json
+from .security import resolve_path_under_base
 from .reporting import (
     dataset_provenance,
     jsonl_writer,
@@ -129,7 +130,9 @@ def run_distillation(
             candidates = sorted(ckpt_root.glob("step_*"), key=lambda p: p.name)
             resume_path = candidates[-1] if candidates else None
         else:
-            resume_path = Path(str(cfg.resume))
+            resume_path = resolve_path_under_base(
+                Path(str(cfg.resume)), base=ckpt_root, must_exist=True
+            )
         if resume_path and (resume_path / "accelerate_state").exists():
             accelerator.print(f"Resuming from {resume_path}")
             accelerator.load_state(resume_path / "accelerate_state")

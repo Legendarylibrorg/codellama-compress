@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .config import DatasetConfig, DistillConfig, GPTQConfig, load_config_file, merge_dataclass
 from .io import assert_disk_budget, new_run_dir, save_effective_config, write_env_report
+from .security import resolve_user_path
 
 
 def _load_blob(config: str | None) -> dict:
@@ -121,11 +122,12 @@ def _cmd_prune_mask_mlp(args: argparse.Namespace) -> int:
 
         from .reporting import write_samples_jsonl
 
-        tok = AutoTokenizer.from_pretrained(out_dir, use_fast=True)
+        tok = AutoTokenizer.from_pretrained(out_dir, use_fast=True, trust_remote_code=False)
         model = AutoModelForCausalLM.from_pretrained(
             out_dir,
             device_map="auto",
             torch_dtype=torch.float16 if torch.cuda.is_available() else None,
+            trust_remote_code=False,
         )
         write_samples_jsonl(
             run_dir=run_dir,
@@ -329,8 +331,8 @@ def _cmd_export_bundle(args: argparse.Namespace) -> int:
     from .export import write_export_bundle
 
     write_export_bundle(
-        model_dir=_p(args.model_dir),
-        out_dir=_p(args.out_dir),
+        model_dir=resolve_user_path(_p(args.model_dir)),
+        out_dir=resolve_user_path(_p(args.out_dir)),
         model_name=model_name,
         port=port,
     )
@@ -348,9 +350,13 @@ def _cmd_util_verify_artifact(args: argparse.Namespace) -> int:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tok = AutoTokenizer.from_pretrained(args.model_dir, use_fast=True)
+    model_dir = resolve_user_path(_p(args.model_dir), must_exist=True)
+    tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True, trust_remote_code=False)
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_dir, device_map="auto", torch_dtype=torch.float16
+        model_dir,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        trust_remote_code=False,
     )
     inputs = tok(args.prompt, return_tensors="pt").to(model.device)
     with torch.inference_mode():

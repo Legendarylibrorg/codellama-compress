@@ -56,7 +56,9 @@ def run_benchmarks(
         ) from e
 
     # lm-eval-harness HF backend
-    model_args = f"pretrained={model_dir},trust_remote_code=False"
+    from .security import hf_pretrained_model_args
+
+    model_args = hf_pretrained_model_args(model_dir)
     res = evaluator.simple_evaluate(
         model="hf",
         model_args=model_args,

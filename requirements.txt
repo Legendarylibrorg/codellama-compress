@@ -2,9 +2,9 @@
 # Do not edit by hand. Regenerate with:
 #   python scripts/export_requirements.py
 
-torch>=2.1
-transformers>=4.40
-accelerate>=0.30
-datasets>=2.18
+torch>=2.11.0
+transformers>=5.5.3
+accelerate>=1.13.0
+datasets>=4.8.4
 safetensors>=0.4
-tqdm>=4.66
+tqdm>=4.67.3

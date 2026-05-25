@@ -92,10 +92,16 @@ def speculative_generate(
             )
 
     target = AutoModelForCausalLM.from_pretrained(
-        target_model, device_map=_device_map(device), torch_dtype=torch.float16
+        target_model,
+        device_map=_device_map(device),
+        torch_dtype=torch.float16,
+        trust_remote_code=False,
     )
     draft = AutoModelForCausalLM.from_pretrained(
-        draft_model, device_map=_device_map(device), torch_dtype=torch.float16
+        draft_model,
+        device_map=_device_map(device),
+        torch_dtype=torch.float16,
+        trust_remote_code=False,
     )
 
     # Keep separate tensors per-model to avoid device_map mismatches.

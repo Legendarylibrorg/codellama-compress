@@ -3,18 +3,22 @@ from __future__ import annotations
 import shlex
 from pathlib import Path
 
-
-def _assert_safe_single_line(s: str, *, field: str) -> None:
-    if any(c in s for c in ["\n", "\r", "\x00"]):
-        raise ValueError(f"Unsafe {field}: contains control characters")
+from .security import (
+    assert_safe_modelfile_name,
+    assert_safe_shell_token,
+    clamp_tcp_port,
+    resolve_user_path,
+)
 
 
 def write_export_bundle(
     *, model_dir: Path, out_dir: Path, model_name: str, port: int = 8000
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    model_dir_s = str(model_dir)
-    _assert_safe_single_line(model_dir_s, field="model_dir")
+    model_dir_r = resolve_user_path(model_dir)
+    model_dir_s = assert_safe_shell_token(str(model_dir_r), field="model_dir")
+    model_name = assert_safe_modelfile_name(model_name)
+    port = clamp_tcp_port(port)
     model_dir_q = shlex.quote(model_dir_s)
 
     # vLLM server script (OpenAI-compatible)
@@ -62,7 +66,7 @@ def write_export_bundle(
         "# GENERATED FILE. Review before running.\n"
         "#!/usr/bin/env bash\n"
         "set -e\n"
-        'IN_DIR="${1:-' + model_dir_s + '}"\n'
+        "IN_DIR=\"${1:-" + model_dir_q + "}\"\n"
         'OUT_DIR="${2:-output/gguf}"\n'
         'QUANTS="${3:-q4_k_m}"\n'
         'LLAMA_CPP_DIR="${LLAMA_CPP_DIR:-./llama.cpp}"\n'
@@ -112,7 +116,7 @@ def write_export_bundle(
         "if __name__ == '__main__':\n"
         "    text, stats = speculative_generate(\n"
         f"        prompt='def fibonacci(n):',\n"
-        f"        target_model=r'{model_dir}',\n"
+        f"        target_model={model_dir_r!r},\n"
         "        draft_model='codellama/CodeLlama-7b-hf',\n"
         "        num_speculative_tokens=5,\n"
         "        max_new_tokens=256,\n"

@@ -15,11 +15,15 @@ from .config import save_json
 
 
 def new_run_dir(root: Path = Path("output/runs"), run_id: str | None = None) -> Path:
+    from .security import assert_safe_run_id
+
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     if run_id is None:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         run_id = ts
+    else:
+        assert_safe_run_id(run_id)
     run_dir = root / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir

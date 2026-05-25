@@ -12,6 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .config import save_json
 from .reporting import write_metrics, write_provenance, write_samples_jsonl
+from .security import resolve_user_path
 
 
 @dataclass(frozen=True)
@@ -83,9 +84,13 @@ def measure_speed(
 
 def evaluate_model_dir(model_dir: Path, out_path: Path | None = None) -> EvalResult:
     # This is intentionally a lightweight smoke evaluation.
-    tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
+    model_dir = resolve_user_path(model_dir, must_exist=True)
+    tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True, trust_remote_code=False)
     model = AutoModelForCausalLM.from_pretrained(
-        model_dir, device_map="auto", torch_dtype=torch.float16
+        model_dir,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        trust_remote_code=False,
     )
     device = model.device
     ppl = compute_perplexity(model, tok, _default_texts(), device)
@@ -97,9 +102,13 @@ def evaluate_model_dir(model_dir: Path, out_path: Path | None = None) -> EvalRes
 
 
 def evaluate_into_run_dir(*, run_dir: Path, model_dir: Path) -> EvalResult:
-    tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
+    model_dir = resolve_user_path(model_dir, must_exist=True)
+    tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True, trust_remote_code=False)
     model = AutoModelForCausalLM.from_pretrained(
-        model_dir, device_map="auto", torch_dtype=torch.float16
+        model_dir,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        trust_remote_code=False,
     )
     write_provenance(run_dir, extra={"stage": "evaluate"})
     device = model.device

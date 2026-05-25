@@ -63,11 +63,9 @@ def save_json(path: Path, obj: Any) -> None:
 
 
 def load_config_file(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(str(path))
-    if path.suffix.lower() in {".json"}:
-        return json.loads(path.read_text())
-    raise ValueError(f"Unsupported config file type: {path.suffix}. Use JSON.")
+    from .security import load_bounded_json_config
+
+    return load_bounded_json_config(path)
 
 
 def merge_dataclass(dc: Any, updates: dict[str, Any]) -> Any:
@@ -76,8 +74,6 @@ def merge_dataclass(dc: Any, updates: dict[str, Any]) -> Any:
 
     Intended for CLI config overrides where nested structures are handled at the top level.
     """
-    if not hasattr(dc, "__dataclass_fields__"):
-        raise TypeError("merge_dataclass expects a dataclass instance")
-    base = dict(dc.__dict__)
-    base.update(updates or {})
-    return dc.__class__(**base)
+    from .security import merge_dataclass_fields
+
+    return merge_dataclass_fields(dc, updates)
