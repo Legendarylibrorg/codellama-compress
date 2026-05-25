@@ -18,3 +18,12 @@ def test_merge_dataclass_shallow():
     merged = merge_dataclass(base, {"name": "y", "streaming": False})
     assert merged.name == "y"
     assert merged.streaming is False
+
+
+def test_merge_dataclass_ignores_unknown_keys():
+    from codellama_compress.config import DatasetConfig, merge_dataclass
+
+    base = DatasetConfig()
+    merged = merge_dataclass(base, {"name": "z", "not_a_field": 1})
+    assert merged.name == "z"
+    assert merged.config == base.config

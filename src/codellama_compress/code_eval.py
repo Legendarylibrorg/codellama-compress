@@ -11,6 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .code_exec import run_python_sandboxed
 from .reporting import jsonl_writer, write_metrics, write_provenance
+from .security import resolve_user_path
 
 
 @dataclass(frozen=True)
@@ -98,11 +99,15 @@ def run_code_eval(
     out_dir.mkdir(parents=True, exist_ok=True)
     write_provenance(run_dir, extra={"stage": f"code_eval_{suite}", "suite": suite})
 
-    tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True)
+    model_dir = resolve_user_path(model_dir, must_exist=True)
+    tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True, trust_remote_code=False)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     model = AutoModelForCausalLM.from_pretrained(
-        model_dir, device_map="auto", torch_dtype=torch.float16
+        model_dir,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        trust_remote_code=False,
     )
 
     details_path = out_dir / "details.jsonl"

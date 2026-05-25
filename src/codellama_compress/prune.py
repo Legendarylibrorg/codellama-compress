@@ -6,6 +6,8 @@ from typing import Literal
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from .security import resolve_user_path
+
 
 def _iter_llama_mlp_modules(model):
     # Llama-like: model.model.layers[i].mlp.{gate_proj,up_proj,down_proj}
@@ -42,10 +44,14 @@ def run_mlp_mask_prune(
         raise ValueError("ratio must be in (0, 1)")
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    in_model_dir = resolve_user_path(in_model_dir, must_exist=True)
 
-    tok = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True)
+    tok = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True, trust_remote_code=False)
     model = AutoModelForCausalLM.from_pretrained(
-        in_model_dir, torch_dtype=torch.float16, device_map="cpu"
+        in_model_dir,
+        torch_dtype=torch.float16,
+        device_map="cpu",
+        trust_remote_code=False,
     )
     model.eval()
 

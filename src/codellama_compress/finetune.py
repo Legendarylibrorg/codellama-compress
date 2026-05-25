@@ -87,7 +87,9 @@ def run_finetune(
             "it can execute arbitrary code from the model repository."
         )
 
-    tokenizer = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        in_model_dir, use_fast=True, trust_remote_code=cfg.trust_remote_code
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
