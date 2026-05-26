@@ -10,6 +10,7 @@ from tqdm.auto import tqdm
 from transformers import AutoTokenizer
 
 from .config import DatasetConfig, GPTQConfig, save_json
+from .replay import hash_calibration_texts
 from .reporting import write_metrics, write_provenance
 
 
@@ -30,12 +31,14 @@ def _build_calibration_data(tokenizer, dataset_cfg: DatasetConfig, cfg: GPTQConf
     gen = _iter_texts(dataset_cfg)
     rng = random.Random(cfg.seed)
     data = []
+    texts_used: list[str] = []
     for _ in tqdm(range(cfg.calibration_samples), desc="Calibration samples"):
         text = next(gen)
         # truncate a random window for variety
         if len(text) > cfg.calibration_seq_len * 4:
             start = rng.randrange(0, max(1, len(text) - cfg.calibration_seq_len * 4))
             text = text[start : start + cfg.calibration_seq_len * 4]
+        texts_used.append(text)
         enc = tokenizer(
             text,
             return_tensors="pt",
@@ -44,7 +47,7 @@ def _build_calibration_data(tokenizer, dataset_cfg: DatasetConfig, cfg: GPTQConf
             padding="max_length",
         )
         data.append(enc["input_ids"])
-    return torch.cat(data, dim=0)
+    return torch.cat(data, dim=0), texts_used
 
 
 def run_gptq_quantization(
@@ -83,7 +86,8 @@ def run_gptq_quantization(
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
 
-    calib_ids = _build_calibration_data(tokenizer, dataset_cfg, cfg)
+    calib_ids, calib_texts = _build_calibration_data(tokenizer, dataset_cfg, cfg)
+    calib_fingerprint = hash_calibration_texts(calib_texts)
     examples = [{"input_ids": calib_ids[i : i + 1]} for i in range(calib_ids.shape[0])]
 
     model.quantize(examples, use_triton=False)
@@ -97,6 +101,8 @@ def run_gptq_quantization(
             "output_model": str(out_dir),
             "gptq": cfg,
             "dataset": dataset_cfg,
+            "calibration_fingerprint": calib_fingerprint,
+            "calibration_samples": len(calib_texts),
         },
     )
     write_metrics(

@@ -13,6 +13,7 @@ from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
 
 from .config import DatasetConfig, DistillConfig, save_json
+from .replay import apply_global_seeds
 from .reporting import (
     dataset_provenance,
     jsonl_writer,
@@ -68,14 +69,16 @@ def run_finetune(
     out_dir: Path,
     dataset_cfg: DatasetConfig,
     cfg: DistillConfig,
+    seed: int = 42,
 ) -> None:
     """
     Post-pruning recovery fine-tuning (LM loss only).
 
     We reuse `DistillConfig` for training knobs; teacher/distill-related fields are ignored.
     """
+    apply_global_seeds(seed)
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_provenance(run_dir, extra={"stage": "finetune", **dataset_provenance(dataset_cfg)})
+    write_provenance(run_dir, extra={"stage": "finetune", "seed": seed, **dataset_provenance(dataset_cfg)})
     steps_log_path = run_dir / "logs" / "finetune_train_steps.jsonl"
 
     accelerator = Accelerator(**_precision_kwargs(cfg.precision))

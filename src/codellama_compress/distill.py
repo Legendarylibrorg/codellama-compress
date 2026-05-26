@@ -18,6 +18,7 @@ from transformers import (
 )
 
 from .config import DatasetConfig, DistillConfig, save_json
+from .replay import apply_global_seeds
 from .security import resolve_path_under_base
 from .reporting import (
     dataset_provenance,
@@ -76,9 +77,11 @@ def run_distillation(
     out_dir: Path,
     dataset_cfg: DatasetConfig,
     cfg: DistillConfig,
+    seed: int = 42,
 ) -> None:
+    apply_global_seeds(seed)
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_provenance(run_dir, extra={"stage": "distill", **dataset_provenance(dataset_cfg)})
+    write_provenance(run_dir, extra={"stage": "distill", "seed": seed, **dataset_provenance(dataset_cfg)})
     steps_log_path = run_dir / "logs" / "distill_train_steps.jsonl"
 
     accelerator = Accelerator(**_precision_kwargs(cfg.precision))

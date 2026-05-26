@@ -135,6 +135,19 @@ Key knobs live in the CLI dataclasses:
 - `DatasetConfig` in `src/codellama_compress/config.py`
 - `DistillConfig` in `src/codellama_compress/config.py` (also reused for fine-tune)
 - `GPTQConfig` in `src/codellama_compress/config.py` (also reused for AWQ calibration knobs)
+- `DeterminismConfig` in `src/codellama_compress/config.py` (seeds, hash-based run ids, replay)
+
+### Determinism and hash-based replay
+
+By default, pipeline commands use `--deterministic` and `--hash-run-id`:
+
+- **Same config → same run directory** under `output/runs/` (id like `r<16-char-hex>` from a pipeline fingerprint).
+- Each stage records **SHA-256 content hashes** in `manifest.json` and `artifacts.jsonl`.
+- **Replay a later stage** against a prior run: pass `--replay-from output/runs/<prior_run>` so input model dirs are hash-checked.
+- **Verify** a run: `codellama-compress util manifest-verify --run-dir output/runs/<run_id>`
+- **Backfill** manifests for older runs: `codellama-compress util manifest-create --run-dir ...`
+
+Use `--no-hash-run-id` for timestamp-based run ids, or `--no-deterministic` only when you accept non-reproducible RNG.
 
 ## Pipeline Stages (conceptual)
 

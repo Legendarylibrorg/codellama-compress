@@ -6,6 +6,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from .config import DatasetConfig, GPTQConfig, save_json
+from .replay import hash_calibration_texts
 from .reporting import write_metrics, write_provenance
 
 
@@ -58,6 +59,7 @@ def run_awq_quantization(
         "version": "GEMM",
     }
     calib = _sample_texts(dataset_cfg, cfg.calibration_samples)
+    calib_fingerprint = hash_calibration_texts(calib)
     model.quantize(tok, quant_config=quant_config, calib_data=calib)
     model.save_quantized(out_dir)
     tok.save_pretrained(out_dir)
@@ -67,8 +69,9 @@ def run_awq_quantization(
         {
             "input_model": str(in_model_dir),
             "output_model": str(out_dir),
-            "awq": {"calibration_samples": cfg.calibration_samples},
+            "awq": {"calibration_samples": cfg.calibration_samples, "seed": cfg.seed},
             "dataset": dataset_cfg,
+            "calibration_fingerprint": calib_fingerprint,
         },
     )
     write_metrics(
