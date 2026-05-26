@@ -56,7 +56,7 @@ def hash_directory(
     exclude_names: frozenset[str] = frozenset({".git", "__pycache__"}),
 ) -> str:
     """
-  Content-address a directory: sorted relative path + per-file sha256 lines.
+    Content-address a directory: sorted relative path + per-file sha256 lines.
     """
     if not path.exists():
         raise FileNotFoundError(path)
@@ -330,7 +330,11 @@ def backfill_manifest_from_run_dir(run_dir: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"No config.json in {run_dir}")
     effective_config = json.loads(config_path.read_text(encoding="utf-8"))
     fp = content_fingerprint(effective_config)
-    det = effective_config.get("determinism") or {"seed": 42, "deterministic": True, "hash_run_id": True}
+    det = effective_config.get("determinism") or {
+        "seed": 42,
+        "deterministic": True,
+        "hash_run_id": True,
+    }
     manifest = init_manifest(
         run_dir,
         config_fingerprint=fp,

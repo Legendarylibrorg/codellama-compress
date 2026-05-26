@@ -213,9 +213,7 @@ def _cmd_distill_run(args: argparse.Namespace) -> int:
     from .distill import run_distillation
 
     out_dir = run_dir / "distilled"
-    run_distillation(
-        run_dir=run_dir, out_dir=out_dir, dataset_cfg=ds_cfg, cfg=d_cfg, seed=det.seed
-    )
+    run_distillation(run_dir=run_dir, out_dir=out_dir, dataset_cfg=ds_cfg, cfg=d_cfg, seed=det.seed)
     _finish_stage(run_dir=run_dir, stage="distill", artifact_path=out_dir)
     _finish_run(out_root=args.out_root, run_dir=run_dir, max_run_dir_gb=args.max_run_dir_gb)
     print(f"Done. Distilled model at: {out_dir}")

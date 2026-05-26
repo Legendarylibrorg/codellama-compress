@@ -66,7 +66,7 @@ def write_export_bundle(
         "# GENERATED FILE. Review before running.\n"
         "#!/usr/bin/env bash\n"
         "set -e\n"
-        "IN_DIR=\"${1:-" + model_dir_q + "}\"\n"
+        'IN_DIR="${1:-' + model_dir_q + '}"\n'
         'OUT_DIR="${2:-output/gguf}"\n'
         'QUANTS="${3:-q4_k_m}"\n'
         'LLAMA_CPP_DIR="${LLAMA_CPP_DIR:-./llama.cpp}"\n'

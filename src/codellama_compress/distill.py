@@ -81,7 +81,9 @@ def run_distillation(
 ) -> None:
     apply_global_seeds(seed)
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_provenance(run_dir, extra={"stage": "distill", "seed": seed, **dataset_provenance(dataset_cfg)})
+    write_provenance(
+        run_dir, extra={"stage": "distill", "seed": seed, **dataset_provenance(dataset_cfg)}
+    )
     steps_log_path = run_dir / "logs" / "distill_train_steps.jsonl"
 
     accelerator = Accelerator(**_precision_kwargs(cfg.precision))
