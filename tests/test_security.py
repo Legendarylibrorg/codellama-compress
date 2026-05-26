@@ -6,16 +6,15 @@ from pathlib import Path
 
 import pytest
 
+from codellama_compress.code_exec import run_python_sandboxed
 from codellama_compress.config import DistillConfig, load_config_file, merge_dataclass
 from codellama_compress.export import write_export_bundle
 from codellama_compress.io import new_run_dir
 from codellama_compress.security import (
     assert_safe_run_id,
-    assert_safe_shell_token,
     load_bounded_json_config,
     merge_dataclass_fields,
 )
-from codellama_compress.code_exec import run_python_sandboxed
 
 
 def test_assert_safe_run_id_rejects_traversal() -> None:

@@ -154,7 +154,6 @@ def append_artifact_record(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Append a stage artifact line to artifacts.jsonl and update manifest stages."""
-    rel = artifact_path.name if artifact_path.is_dir() else str(artifact_path)
     try:
         rel_path = str(artifact_path.relative_to(run_dir))
     except ValueError:

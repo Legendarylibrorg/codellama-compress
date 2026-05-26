@@ -19,7 +19,6 @@ from transformers import (
 
 from .config import DatasetConfig, DistillConfig, save_json
 from .replay import apply_global_seeds
-from .security import resolve_path_under_base
 from .reporting import (
     dataset_provenance,
     jsonl_writer,
@@ -27,6 +26,7 @@ from .reporting import (
     write_provenance,
     write_samples_jsonl,
 )
+from .security import resolve_path_under_base
 
 
 def _precision_kwargs(precision: str) -> dict:
