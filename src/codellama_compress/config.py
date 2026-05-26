@@ -39,6 +39,15 @@ class DistillConfig:
 
 
 @dataclass(frozen=True)
+class DeterminismConfig:
+    """Global reproducibility knobs for training, quantization, and run identity."""
+
+    seed: int = 42
+    deterministic: bool = True
+    hash_run_id: bool = True
+
+
+@dataclass(frozen=True)
 class GPTQConfig:
     bits: int = 4
     group_size: int = 128
@@ -51,7 +60,11 @@ class GPTQConfig:
 
 def to_jsonable(d: Any) -> Any:
     if hasattr(d, "__dataclass_fields__"):
-        return asdict(d)
+        return {k: to_jsonable(v) for k, v in asdict(d).items()}
+    if isinstance(d, dict):
+        return {str(k): to_jsonable(v) for k, v in d.items()}
+    if isinstance(d, (list, tuple)):
+        return [to_jsonable(v) for v in d]
     if isinstance(d, Path):
         return str(d)
     return d

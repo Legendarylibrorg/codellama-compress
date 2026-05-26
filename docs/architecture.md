@@ -24,7 +24,9 @@ Runs are stored under:
 output/runs/<run_id>/
 ```
 
-`<run_id>` defaults to a UTC timestamp (unless you pass `--run-id`).
+`<run_id>` defaults to a **hash of the pipeline config** (`--hash-run-id`, on by default) so the same config reuses the same directory. Pass `--no-hash-run-id` for UTC timestamp ids, or set `--run-id` explicitly.
+
+Each run writes `manifest.json` and `artifacts.jsonl` with SHA-256 fingerprints of stage outputs for replay verification (`codellama-compress util manifest-verify`).
 
 Typical stage directories:
 

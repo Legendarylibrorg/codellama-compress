@@ -6,6 +6,7 @@ from typing import Literal
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from .replay import apply_global_seeds
 from .security import resolve_user_path
 
 
@@ -34,12 +35,14 @@ def run_mlp_mask_prune(
     out_dir: Path,
     ratio: float = 0.25,
     method: Literal["magnitude", "wanda"] = "magnitude",
+    seed: int = 42,
 ) -> None:
     """
     Mask (zero) a fraction of intermediate neurons in Llama MLPs.
 
     This keeps model shapes compatible with HF configs, but reduces effective capacity.
     """
+    apply_global_seeds(seed)
     if not (0.0 < ratio < 1.0):
         raise ValueError("ratio must be in (0, 1)")
 

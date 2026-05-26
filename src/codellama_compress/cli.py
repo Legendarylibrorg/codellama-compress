@@ -1,11 +1,29 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
-from .config import DatasetConfig, DistillConfig, GPTQConfig, load_config_file, merge_dataclass
+from .config import (
+    DatasetConfig,
+    DeterminismConfig,
+    DistillConfig,
+    GPTQConfig,
+    load_config_file,
+    merge_dataclass,
+)
 from .io import assert_disk_budget, new_run_dir, save_effective_config, write_env_report
+from .replay import (
+    append_artifact_record,
+    apply_global_seeds,
+    assert_replay_inputs,
+    backfill_manifest_from_run_dir,
+    content_fingerprint,
+    derive_run_id,
+    init_manifest,
+    verify_manifest,
+)
 from .security import resolve_user_path
 
 
@@ -42,6 +60,58 @@ def _load_awq_cfg(blob: dict) -> GPTQConfig:
     return _dc_from_blob(blob, "awq", base)
 
 
+def _pipeline_fingerprint(blob: dict, det: DeterminismConfig, config_path: str | None) -> dict:
+    """Stable identity for an entire multi-stage pipeline (shared run directory)."""
+    from .replay import sha256_file
+
+    if config_path:
+        p = Path(config_path)
+        return {"config_sha256": sha256_file(p), "determinism": det}
+    return {
+        "dataset": _load_dataset_cfg(blob),
+        "distill": _load_distill_cfg(blob),
+        "finetune": _load_finetune_cfg(blob),
+        "prune": blob.get("prune", {"ratio": 0.25, "method": "magnitude"}),
+        "determinism": det,
+    }
+
+
+def _load_determinism_cfg(blob: dict, args: argparse.Namespace) -> DeterminismConfig:
+    det = _dc_from_blob(blob, "determinism", DeterminismConfig())
+    overrides: dict = {}
+    if getattr(args, "seed", None) is not None:
+        overrides["seed"] = args.seed
+    if getattr(args, "deterministic", None) is not None:
+        overrides["deterministic"] = args.deterministic
+    if getattr(args, "hash_run_id", None) is not None:
+        overrides["hash_run_id"] = args.hash_run_id
+    if overrides:
+        det = merge_dataclass(det, overrides)
+    return det
+
+
+def add_determinism_args(parser: argparse.ArgumentParser, *, replay: bool = False) -> None:
+    parser.add_argument("--seed", type=int, default=42, help="Global RNG seed.")
+    parser.add_argument(
+        "--deterministic",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Apply global PyTorch/Python seeds and cudnn deterministic mode.",
+    )
+    parser.add_argument(
+        "--hash-run-id",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Derive --run-id from config hash when --run-id is omitted.",
+    )
+    if replay:
+        parser.add_argument(
+            "--replay-from",
+            default=None,
+            help="Prior run directory; verify input artifact hashes before this stage.",
+        )
+
+
 def _p(s: str | Path) -> Path:
     return s if isinstance(s, Path) else Path(s)
 
@@ -51,17 +121,68 @@ def _start_run(
     out_root: str,
     run_id: str | None,
     effective_config: dict,
+    determinism: DeterminismConfig,
+    pipeline_fp: dict,
+    stage: str | None = None,
     min_free_gb: float | None = None,
     env_report: bool = True,
 ) -> Path:
+    if determinism.deterministic:
+        apply_global_seeds(determinism.seed)
+
+    effective_config = {**effective_config, "determinism": determinism}
+    pipeline_hash = content_fingerprint(pipeline_fp)
+    if run_id is None and determinism.hash_run_id:
+        run_id = derive_run_id(pipeline_hash)
+
     out_root_p = Path(out_root)
     run_dir = new_run_dir(out_root_p, run_id=run_id)
     if min_free_gb is not None:
         assert_disk_budget(root=out_root_p, min_free_gb=min_free_gb)
-    if env_report:
+
+    marker = out_root_p / ".last_run"
+    marker.write_text(run_dir.name + "\n", encoding="utf-8")
+
+    config_path = run_dir / "config.json"
+    merged: dict = {}
+    if config_path.exists():
+        try:
+            merged = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            merged = {}
+    merged.update(effective_config)
+    save_effective_config(run_dir, merged)
+
+    from .replay import MANIFEST_NAME
+
+    if env_report and not (run_dir / "env.json").exists():
         write_env_report(run_dir)
-    save_effective_config(run_dir, effective_config)
+    if not (run_dir / MANIFEST_NAME).exists():
+        init_manifest(
+            run_dir,
+            config_fingerprint=pipeline_hash,
+            pipeline_fingerprint=pipeline_fp,
+            determinism=determinism,
+            effective_config=merged,
+            stage=stage,
+        )
     return run_dir
+
+
+def _finish_stage(
+    *,
+    run_dir: Path,
+    stage: str,
+    artifact_path: Path,
+    extra: dict | None = None,
+) -> None:
+    append_artifact_record(
+        run_dir,
+        stage=stage,
+        artifact_path=artifact_path,
+        role="output",
+        extra=extra,
+    )
 
 
 def _finish_run(*, out_root: str, run_dir: Path, max_run_dir_gb: float | None = None) -> None:
@@ -74,11 +195,17 @@ def _cmd_distill_run(args: argparse.Namespace) -> int:
     blob = _load_blob(args.config)
     ds_cfg = _load_dataset_cfg(blob)
     d_cfg = _load_distill_cfg(blob)
+    det = _load_determinism_cfg(blob, args)
+    ds_cfg = merge_dataclass(ds_cfg, {"seed": det.seed})
+    pipe_fp = _pipeline_fingerprint(blob, det, args.config)
 
     run_dir = _start_run(
         out_root=args.out_root,
         run_id=args.run_id,
         effective_config={"dataset": ds_cfg, "distill": d_cfg},
+        determinism=det,
+        pipeline_fp=pipe_fp,
+        stage="distill",
         min_free_gb=args.min_free_gb,
         env_report=args.env_report,
     )
@@ -86,20 +213,31 @@ def _cmd_distill_run(args: argparse.Namespace) -> int:
     from .distill import run_distillation
 
     out_dir = run_dir / "distilled"
-    run_distillation(run_dir=run_dir, out_dir=out_dir, dataset_cfg=ds_cfg, cfg=d_cfg)
+    run_distillation(run_dir=run_dir, out_dir=out_dir, dataset_cfg=ds_cfg, cfg=d_cfg, seed=det.seed)
+    _finish_stage(run_dir=run_dir, stage="distill", artifact_path=out_dir)
     _finish_run(out_root=args.out_root, run_dir=run_dir, max_run_dir_gb=args.max_run_dir_gb)
     print(f"Done. Distilled model at: {out_dir}")
     return 0
 
 
 def _cmd_prune_mask_mlp(args: argparse.Namespace) -> int:
+    blob = _load_blob(args.config)
     ratio = args.ratio
     method = args.method
-    if args.config:
-        blob = _load_blob(args.config)
-        pr = blob.get("prune", {})
-        ratio = float(pr.get("ratio", ratio))
-        method = str(pr.get("method", method))
+    pr = blob.get("prune", {})
+    ratio = float(pr.get("ratio", ratio))
+    method = str(pr.get("method", method))
+    det = _load_determinism_cfg(blob, args)
+    pipe_fp = _pipeline_fingerprint(blob, det, args.config)
+
+    model_dir = _p(args.model_dir)
+    if args.replay_from:
+        assert_replay_inputs(
+            Path(args.replay_from),
+            stage="prune",
+            input_path=model_dir,
+            expected_from_stage="distill",
+        )
 
     run_dir = _start_run(
         out_root=args.out_root,
@@ -108,14 +246,19 @@ def _cmd_prune_mask_mlp(args: argparse.Namespace) -> int:
             "prune": {"ratio": ratio, "method": method},
             "model_dir": str(args.model_dir),
         },
+        determinism=det,
+        pipeline_fp=pipe_fp,
+        stage="prune",
         env_report=args.env_report,
     )
 
     from .prune import run_mlp_mask_prune
 
-    model_dir = _p(args.model_dir)
     out_dir = run_dir / "pruned"
-    run_mlp_mask_prune(in_model_dir=model_dir, out_dir=out_dir, ratio=ratio, method=method)
+    run_mlp_mask_prune(
+        in_model_dir=model_dir, out_dir=out_dir, ratio=ratio, method=method, seed=det.seed
+    )
+    _finish_stage(run_dir=run_dir, stage="prune", artifact_path=out_dir)
     try:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -150,11 +293,26 @@ def _cmd_finetune_run(args: argparse.Namespace) -> int:
     blob = _load_blob(args.config)
     ds_cfg = _load_dataset_cfg(blob)
     ft_cfg = _load_finetune_cfg(blob)
+    det = _load_determinism_cfg(blob, args)
+    ds_cfg = merge_dataclass(ds_cfg, {"seed": det.seed})
+    pipe_fp = _pipeline_fingerprint(blob, det, args.config)
+
+    model_dir = _p(args.model_dir)
+    if args.replay_from:
+        assert_replay_inputs(
+            Path(args.replay_from),
+            stage="finetune",
+            input_path=model_dir,
+            expected_from_stage="prune",
+        )
 
     run_dir = _start_run(
         out_root=args.out_root,
         run_id=args.run_id,
         effective_config={"dataset": ds_cfg, "finetune": ft_cfg, "model_dir": str(args.model_dir)},
+        determinism=det,
+        pipeline_fp=pipe_fp,
+        stage="finetune",
         min_free_gb=args.min_free_gb,
         env_report=args.env_report,
     )
@@ -162,14 +320,15 @@ def _cmd_finetune_run(args: argparse.Namespace) -> int:
     from .finetune import run_finetune
 
     out_dir = run_dir / "finetuned"
-    model_dir = _p(args.model_dir)
     run_finetune(
         run_dir=run_dir,
         in_model_dir=model_dir,
         out_dir=out_dir,
         dataset_cfg=ds_cfg,
         cfg=ft_cfg,
+        seed=det.seed,
     )
+    _finish_stage(run_dir=run_dir, stage="finetune", artifact_path=out_dir)
     _finish_run(out_root=args.out_root, run_dir=run_dir, max_run_dir_gb=args.max_run_dir_gb)
     print(f"Done. Fine-tuned model at: {out_dir}")
     return 0
@@ -179,11 +338,27 @@ def _cmd_quant_gptq(args: argparse.Namespace) -> int:
     blob = _load_blob(args.config)
     ds_cfg = _load_dataset_cfg(blob)
     q_cfg = _load_gptq_cfg(blob)
+    det = _load_determinism_cfg(blob, args)
+    ds_cfg = merge_dataclass(ds_cfg, {"seed": det.seed})
+    q_cfg = merge_dataclass(q_cfg, {"seed": det.seed})
+    pipe_fp = _pipeline_fingerprint(blob, det, args.config)
+
+    model_dir = _p(args.model_dir)
+    if args.replay_from:
+        assert_replay_inputs(
+            Path(args.replay_from),
+            stage="quantize_gptq",
+            input_path=model_dir,
+            expected_from_stage="finetune",
+        )
 
     run_dir = _start_run(
         out_root=args.out_root,
         run_id=args.run_id,
         effective_config={"dataset": ds_cfg, "gptq": q_cfg, "model_dir": str(args.model_dir)},
+        determinism=det,
+        pipeline_fp=pipe_fp,
+        stage="quantize_gptq",
         min_free_gb=args.min_free_gb,
         env_report=args.env_report,
     )
@@ -191,7 +366,6 @@ def _cmd_quant_gptq(args: argparse.Namespace) -> int:
     from .quantize_gptq import run_gptq_quantization
 
     out_dir = run_dir / "quantized-gptq"
-    model_dir = _p(args.model_dir)
     run_gptq_quantization(
         run_dir=run_dir,
         in_model_dir=model_dir,
@@ -199,6 +373,7 @@ def _cmd_quant_gptq(args: argparse.Namespace) -> int:
         dataset_cfg=ds_cfg,
         cfg=q_cfg,
     )
+    _finish_stage(run_dir=run_dir, stage="quantize_gptq", artifact_path=out_dir)
     _finish_run(out_root=args.out_root, run_dir=run_dir, max_run_dir_gb=args.max_run_dir_gb)
     print(f"Done. Quantized model at: {out_dir}")
     return 0
@@ -208,11 +383,27 @@ def _cmd_quant_awq(args: argparse.Namespace) -> int:
     blob = _load_blob(args.config)
     ds_cfg = _load_dataset_cfg(blob)
     q_cfg = _load_awq_cfg(blob)
+    det = _load_determinism_cfg(blob, args)
+    ds_cfg = merge_dataclass(ds_cfg, {"seed": det.seed})
+    q_cfg = merge_dataclass(q_cfg, {"seed": det.seed})
+    pipe_fp = _pipeline_fingerprint(blob, det, args.config)
+
+    model_dir = _p(args.model_dir)
+    if args.replay_from:
+        assert_replay_inputs(
+            Path(args.replay_from),
+            stage="quantize_awq",
+            input_path=model_dir,
+            expected_from_stage="finetune",
+        )
 
     run_dir = _start_run(
         out_root=args.out_root,
         run_id=args.run_id,
         effective_config={"dataset": ds_cfg, "awq": q_cfg, "model_dir": str(args.model_dir)},
+        determinism=det,
+        pipeline_fp=pipe_fp,
+        stage="quantize_awq",
         min_free_gb=args.min_free_gb,
         env_report=args.env_report,
     )
@@ -220,7 +411,6 @@ def _cmd_quant_awq(args: argparse.Namespace) -> int:
     from .quantize_awq import run_awq_quantization
 
     out_dir = run_dir / "quantized-awq"
-    model_dir = _p(args.model_dir)
     run_awq_quantization(
         run_dir=run_dir,
         in_model_dir=model_dir,
@@ -228,6 +418,7 @@ def _cmd_quant_awq(args: argparse.Namespace) -> int:
         dataset_cfg=ds_cfg,
         cfg=q_cfg,
     )
+    _finish_stage(run_dir=run_dir, stage="quantize_awq", artifact_path=out_dir)
     _finish_run(out_root=args.out_root, run_dir=run_dir, max_run_dir_gb=args.max_run_dir_gb)
     print(f"Done. Quantized model at: {out_dir}")
     return 0
@@ -254,24 +445,55 @@ def _cmd_evaluate_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_evaluate_benchmark(args: argparse.Namespace) -> int:
-    from datetime import datetime, timezone
-
     from .benchmarks import run_benchmarks
+
+    blob = {}
+    det = _load_determinism_cfg(blob, args)
 
     if args.out_dir:
         out_dir = Path(args.out_dir)
     elif args.out_root or args.run_id:
-        run_dir = new_run_dir(Path(args.out_root or "output/runs"), run_id=args.run_id)
+        effective = {
+            "benchmark": {"tasks": args.tasks, "seed": det.seed},
+            "model_dir": str(args.model_dir),
+            "determinism": det,
+        }
+        run_id = args.run_id
+        if run_id is None and det.hash_run_id:
+            run_id = derive_run_id(content_fingerprint(effective))
+        run_dir = new_run_dir(Path(args.out_root or "output/runs"), run_id=run_id)
+        if det.deterministic:
+            apply_global_seeds(det.seed)
+        save_effective_config(run_dir, effective)
+        init_manifest(
+            run_dir,
+            config_fingerprint=content_fingerprint(effective),
+            determinism=det,
+            effective_config=effective,
+            stage="benchmark",
+        )
         out_dir = run_dir / "benchmarks"
     else:
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        out_dir = Path("output/benchmarks") / ts
+        if det.hash_run_id:
+            effective = {
+                "benchmark": {"tasks": args.tasks, "seed": det.seed},
+                "model_dir": str(args.model_dir),
+            }
+            bench_id = derive_run_id(content_fingerprint(effective), prefix="b")
+        else:
+            from datetime import datetime, timezone
+
+            bench_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        out_dir = Path("output/benchmarks") / bench_id
+
+    if det.deterministic:
+        apply_global_seeds(det.seed)
 
     res = run_benchmarks(
         model_dir=Path(args.model_dir),
         tasks=args.tasks,
         out_dir=out_dir,
-        seed=args.seed,
+        seed=det.seed,
         limit=args.max_samples,
         save_per_sample=args.save_per_sample,
     )
@@ -284,23 +506,37 @@ def _cmd_evaluate_benchmark(args: argparse.Namespace) -> int:
 def _cmd_evaluate_code(args: argparse.Namespace) -> int:
     from .code_eval import run_code_eval
 
-    run_dir = new_run_dir(Path(args.out_root), run_id=args.run_id)
+    blob = {}
+    det = _load_determinism_cfg(blob, args)
+    effective = {
+        "code_eval": {
+            "suite": args.suite,
+            "k": args.k,
+            "seed": det.seed,
+            "max_new_tokens": args.max_new_tokens,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "limit": args.limit,
+        },
+        "model_dir": str(args.model_dir),
+        "determinism": det,
+    }
+    run_id = args.run_id
+    if run_id is None and det.hash_run_id:
+        run_id = derive_run_id(content_fingerprint(effective))
+    if det.deterministic:
+        apply_global_seeds(det.seed)
+
+    run_dir = new_run_dir(Path(args.out_root), run_id=run_id)
     if args.env_report:
         write_env_report(run_dir)
-    save_effective_config(
+    save_effective_config(run_dir, effective)
+    init_manifest(
         run_dir,
-        {
-            "code_eval": {
-                "suite": args.suite,
-                "k": args.k,
-                "seed": args.seed,
-                "max_new_tokens": args.max_new_tokens,
-                "temperature": args.temperature,
-                "top_p": args.top_p,
-                "limit": args.limit,
-            },
-            "model_dir": str(args.model_dir),
-        },
+        config_fingerprint=content_fingerprint(effective),
+        determinism=det,
+        effective_config=effective,
+        stage="code_eval",
     )
 
     res = run_code_eval(
@@ -308,7 +544,7 @@ def _cmd_evaluate_code(args: argparse.Namespace) -> int:
         model_dir=Path(args.model_dir),
         suite=args.suite,
         k=args.k,
-        seed=args.seed,
+        seed=det.seed,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -365,6 +601,18 @@ def _cmd_util_verify_artifact(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_util_manifest_verify(args: argparse.Namespace) -> int:
+    report = verify_manifest(_p(args.run_dir), strict_config=not args.skip_config)
+    print(report)
+    return 0 if report.get("ok") else 1
+
+
+def _cmd_util_manifest_create(args: argparse.Namespace) -> int:
+    manifest = backfill_manifest_from_run_dir(_p(args.run_dir))
+    print(f"Wrote manifest with config_fingerprint={manifest.get('config_fingerprint')}")
+    return 0
+
+
 def _cmd_util_speculative(args: argparse.Namespace) -> int:
     from .speculative import speculative_generate
 
@@ -416,6 +664,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional safety guard: error if the run directory exceeds this many GB.",
     )
+    add_determinism_args(distill_run)
     distill_run.set_defaults(func=_cmd_distill_run)
 
     # prune mask-mlp
@@ -436,6 +685,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
     )
+    add_determinism_args(prune_mask, replay=True)
     prune_mask.set_defaults(func=_cmd_prune_mask_mlp)
 
     # finetune run
@@ -466,6 +716,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional safety guard: error if the run directory exceeds this many GB.",
     )
+    add_determinism_args(finetune_run, replay=True)
     finetune_run.set_defaults(func=_cmd_finetune_run)
 
     # quantize
@@ -494,6 +745,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional safety guard: error if the run directory exceeds this many GB.",
     )
+    add_determinism_args(qg, replay=True)
     qg.set_defaults(func=_cmd_quant_gptq)
 
     qa = quant_sp.add_parser("awq", help="Quantize a model with AWQ (requires '.[quant]').")
@@ -519,6 +771,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional safety guard: error if the run directory exceeds this many GB.",
     )
+    add_determinism_args(qa, replay=True)
     qa.set_defaults(func=_cmd_quant_awq)
 
     qb = quant_sp.add_parser("bnb")
@@ -556,7 +809,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev_bench.add_argument(
         "--run-id", default=None, help="Used with --out-root for run directory naming."
     )
-    ev_bench.add_argument("--seed", type=int, default=42)
+    add_determinism_args(ev_bench)
     ev_bench.add_argument(
         "--max-samples", type=int, default=None, help="Optional limit for quick runs."
     )
@@ -575,7 +828,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev_code.add_argument("--model-dir", required=True)
     ev_code.add_argument("--suite", choices=["humaneval", "mbpp"], required=True)
     ev_code.add_argument("--k", type=int, default=10, help="Number of samples per problem.")
-    ev_code.add_argument("--seed", type=int, default=42)
+    add_determinism_args(ev_code)
     ev_code.add_argument("--max-new-tokens", type=int, default=256)
     ev_code.add_argument("--temperature", type=float, default=0.2)
     ev_code.add_argument("--top-p", type=float, default=0.95)
@@ -615,6 +868,23 @@ def build_parser() -> argparse.ArgumentParser:
     va.add_argument("--prompt", default="def fibonacci(n):")
     va.add_argument("--max-new-tokens", type=int, default=64)
     va.set_defaults(func=_cmd_util_verify_artifact)
+
+    mv = util_sp.add_parser(
+        "manifest-verify", help="Verify manifest.json and artifact content hashes."
+    )
+    mv.add_argument("--run-dir", required=True)
+    mv.add_argument(
+        "--skip-config",
+        action="store_true",
+        help="Skip recomputing config_fingerprint from effective_config.",
+    )
+    mv.set_defaults(func=_cmd_util_manifest_verify)
+
+    mc = util_sp.add_parser(
+        "manifest-create", help="Backfill manifest.json and artifacts.jsonl for an existing run."
+    )
+    mc.add_argument("--run-dir", required=True)
+    mc.set_defaults(func=_cmd_util_manifest_create)
 
     sd = util_sp.add_parser(
         "speculative", help="Run speculative decoding with draft+target models."
