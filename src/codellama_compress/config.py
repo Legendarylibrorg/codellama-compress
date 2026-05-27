@@ -15,6 +15,7 @@ class DatasetConfig:
     shuffle_buffer: int = 10_000
     max_train_samples: int | None = None
     seed: int = 42
+    revision: str | None = None  # Pin Hub dataset revision when set
 
 
 @dataclass(frozen=True)

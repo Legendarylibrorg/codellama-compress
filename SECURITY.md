@@ -21,11 +21,19 @@ This project loads Hugging Face models, runs optional **code execution** for Hum
 
 Assumptions and mitigations:
 
-- Treat `--model-dir` and checkpoint paths as **trusted** local inputs; paths are resolved and
-  traversal patterns are rejected.
-- `trust_remote_code` defaults to **false**; enabling it via config can execute arbitrary code
-  from a model repository.
-- Code-eval uses a **best-effort** POSIX subprocess sandbox (resource limits, import guard,
-  isolated mode). It is not a substitute for OS-level isolation (containers/VMs) on hostile code.
-- Generated export scripts are quoted/validated; review them before running on production hosts.
-- Run artifacts may include `pip freeze` and `nvidia-smi`; disable with `--no-env-report` when sharing outputs.
+- Treat `--model-dir` and checkpoint paths as **trusted** local inputs. Paths reject `..` and
+  **symlinks** during resolution.
+- `trust_remote_code` defaults to **false** in config and code. Enabling it requires **both**
+  config `trust_remote_code: true` and environment variable
+  `CODELLAMA_COMPRESS_TRUST_REMOTE_CODE=1` (break-glass only for repos you fully trust).
+- Training/calibration datasets must be on an **allowlist** (`bigcode/starcoderdata` by default).
+  Extend per process with `CODELLAMA_COMPRESS_DATASET_ALLOWLIST_EXTRA` (comma-separated Hub ids).
+  Pin revisions via `dataset.revision` in JSON config when possible.
+- `evaluate code` is **blocked on bare-metal hosts** unless you run in Docker/CI **or** pass
+  `--allow-insecure-code-exec` with `CODELLAMA_COMPRESS_ALLOW_CODE_EXEC=1`.
+- Code-eval still uses a **best-effort** POSIX subprocess sandbox (blocked builtins/imports,
+  resource limits, isolated mode). Prefer containers/VMs for hostile or unknown models.
+- Generated export scripts are quoted/validated; `convert_gguf.sh` validates path arguments.
+  Review all generated scripts before running on production hosts.
+- Env reports (`pip freeze`, `nvidia-smi`) are **off by default**; pass `--env-report` when needed,
+  or use `codellama-compress util env-report`.

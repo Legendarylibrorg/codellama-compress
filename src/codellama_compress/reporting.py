@@ -78,10 +78,16 @@ def dataset_provenance(dataset_cfg: Any) -> dict[str, Any]:
         return {}
 
     out: dict[str, Any] = {"dataset_cfg": dataclass_dict(dataset_cfg)}
+    revision = getattr(dataset_cfg, "revision", None)
+    if revision:
+        out["dataset_revision"] = revision
     try:
         from datasets import load_dataset_builder  # type: ignore
 
-        b = load_dataset_builder(dataset_cfg.name, dataset_cfg.config)
+        builder_kw: dict[str, Any] = {}
+        if revision:
+            builder_kw["revision"] = revision
+        b = load_dataset_builder(dataset_cfg.name, dataset_cfg.config, **builder_kw)
         info = getattr(b, "info", None)
         out["builder"] = {
             "dataset_name": getattr(info, "dataset_name", None) if info else None,

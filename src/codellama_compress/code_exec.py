@@ -11,25 +11,39 @@ from typing import Literal
 MAX_CODE_BYTES = 256_000
 MAX_CAPTURE_CHARS = 64_000
 
-# Best-effort guard prepended to model-generated programs before execution.
-# This is not a perfect sandbox; see module docstring on run_python_sandboxed.
-_IMPORT_GUARD = """\
+# Prepended to model-generated programs. Not a substitute for OS-level isolation.
+_SANDBOX_GUARD = """\
 from __future__ import annotations
 import builtins as _builtins
 
-_ALLOWED = frozenset({
+_ALLOWED_IMPORT_ROOTS = frozenset({
     "builtins", "math", "itertools", "functools", "collections", "typing",
     "re", "random", "string", "heapq", "bisect", "array", "statistics",
     "decimal", "fractions", "copy", "operator", "enum", "dataclasses",
 })
 
+_BLOCKED_BUILTINS = frozenset({
+    "open", "eval", "exec", "compile", "input", "breakpoint",
+    "__import__", "help", "exit", "quit", "license", "copyright", "credits",
+    "getattr", "setattr", "delattr", "globals", "locals", "vars", "dir",
+    "memoryview", "bytearray", "open_code", "__loader__", "__spec__",
+    "__package__", "__builtins__", "__name__", "__doc__", "__file__",
+})
+
 def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
     root = name.split(".", 1)[0]
-    if root not in _ALLOWED:
+    if root not in _ALLOWED_IMPORT_ROOTS:
         raise ImportError(f"import of {name!r} is blocked in the code-eval sandbox")
     return _builtins.__import__(name, globals, locals, fromlist, level)
 
+def _blocked_builtin(name, *args, **kwargs):
+    raise RuntimeError(f"builtin {name!r} is blocked in the code-eval sandbox")
+
 _builtins.__import__ = _restricted_import
+_bdict = _builtins.__dict__
+for _blocked_name in _BLOCKED_BUILTINS:
+    if _blocked_name in _bdict:
+        _bdict[_blocked_name] = lambda *a, _n=_blocked_name, **k: _blocked_builtin(_n)
 """
 
 
@@ -47,14 +61,10 @@ def _limit_resources() -> None:
     try:
         import resource  # type: ignore
 
-        # CPU seconds
         resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
-        # Address space (bytes) ~1GB
         mem = 1_000_000_000
         resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-        # File size (bytes) ~10MB
         resource.setrlimit(resource.RLIMIT_FSIZE, (10_000_000, 10_000_000))
-        # Number of processes
         if hasattr(resource, "RLIMIT_NPROC"):
             resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
         if hasattr(resource, "RLIMIT_NOFILE"):
@@ -88,8 +98,8 @@ def run_python_sandboxed(*, code: str, timeout_s: float = 3.0) -> ExecResult:
     """
     Execute Python in an isolated subprocess with resource limits.
 
-    Limitations: this blocks common imports but is not a full sandbox. Do not run
-    untrusted code on sensitive hosts; prefer dedicated isolation (containers/VMs).
+    Limitations: blocks common imports and dangerous builtins but is not a full
+    sandbox. Do not run untrusted code on sensitive hosts; use containers/VMs.
     """
     if os.name != "posix":
         return ExecResult(
@@ -113,7 +123,7 @@ def run_python_sandboxed(*, code: str, timeout_s: float = 3.0) -> ExecResult:
         with tempfile.TemporaryDirectory() as td:
             td_p = Path(td)
             script = td_p / "main.py"
-            script.write_text(_IMPORT_GUARD + "\n" + code, encoding="utf-8")
+            script.write_text(_SANDBOX_GUARD + "\n" + code, encoding="utf-8")
 
             cmd = [sys.executable, "-I", "-S", str(script)]
             try:

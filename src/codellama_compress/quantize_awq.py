@@ -8,20 +8,20 @@ from transformers import AutoTokenizer
 from .config import DatasetConfig, GPTQConfig, save_json
 from .replay import hash_calibration_texts
 from .reporting import write_metrics, write_provenance
+from .security import dataset_load_extra_kwargs, normalize_training_text
 
 
 def _sample_texts(dataset_cfg: DatasetConfig, n: int) -> list[str]:
     ds = load_dataset(
         dataset_cfg.name,
         dataset_cfg.config,
-        split=dataset_cfg.split,
-        streaming=True,
+        **{**dataset_load_extra_kwargs(dataset_cfg), "streaming": True},
     ).shuffle(buffer_size=dataset_cfg.shuffle_buffer, seed=dataset_cfg.seed)
     out: list[str] = []
     for row in ds:
         txt = row.get("content") or row.get("text") or ""
         if isinstance(txt, str) and txt.strip():
-            out.append(txt)
+            out.append(normalize_training_text(txt))
             if len(out) >= n:
                 break
     return out
@@ -47,7 +47,7 @@ def run_awq_quantization(
     except Exception as e:  # pragma: no cover
         raise RuntimeError('autoawq is not installed. Install with: pip install ".[quant]"') from e
 
-    tok = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True)
+    tok = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True, trust_remote_code=False)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
