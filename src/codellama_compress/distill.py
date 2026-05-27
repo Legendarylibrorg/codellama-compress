@@ -26,7 +26,13 @@ from .reporting import (
     write_provenance,
     write_samples_jsonl,
 )
-from .security import resolve_path_under_base
+from .security import (
+    dataset_load_extra_kwargs,
+    normalize_training_text,
+    resolve_path_under_base,
+    resolve_trust_remote_code,
+    trust_remote_code_audit_record,
+)
 
 
 def _precision_kwargs(precision: str) -> dict:
@@ -44,8 +50,7 @@ def _iter_texts(dataset_cfg: DatasetConfig) -> Iterable[str]:
     ds = load_dataset(
         dataset_cfg.name,
         dataset_cfg.config,
-        split=dataset_cfg.split,
-        streaming=dataset_cfg.streaming,
+        **dataset_load_extra_kwargs(dataset_cfg),
     )
     if dataset_cfg.streaming:
         ds = ds.shuffle(buffer_size=dataset_cfg.shuffle_buffer, seed=dataset_cfg.seed)
@@ -54,7 +59,7 @@ def _iter_texts(dataset_cfg: DatasetConfig) -> Iterable[str]:
         txt = row.get("content") or row.get("text") or ""
         if not isinstance(txt, str) or not txt.strip():
             continue
-        yield txt
+        yield normalize_training_text(txt)
         n += 1
         if dataset_cfg.max_train_samples is not None and n >= dataset_cfg.max_train_samples:
             break
@@ -81,21 +86,39 @@ def run_distillation(
 ) -> None:
     apply_global_seeds(seed)
     out_dir.mkdir(parents=True, exist_ok=True)
+    trust_rc = resolve_trust_remote_code(cfg.trust_remote_code)
     write_provenance(
-        run_dir, extra={"stage": "distill", "seed": seed, **dataset_provenance(dataset_cfg)}
+        run_dir,
+        extra={
+            "stage": "distill",
+            "seed": seed,
+            **dataset_provenance(dataset_cfg),
+            **trust_remote_code_audit_record(
+                config_flag=cfg.trust_remote_code, effective=trust_rc
+            ),
+        },
     )
     steps_log_path = run_dir / "logs" / "distill_train_steps.jsonl"
 
     accelerator = Accelerator(**_precision_kwargs(cfg.precision))
     device = accelerator.device
 
-    if cfg.trust_remote_code and accelerator.is_local_main_process:
+    if cfg.trust_remote_code and not trust_rc and accelerator.is_local_main_process:
+        from .security import TRUST_REMOTE_CODE_ENV
+
         accelerator.print(
-            "WARNING: trust_remote_code=True. Only use this with models you trust; "
+            f"NOTE: config requests trust_remote_code but it is disabled. "
+            f"Set {TRUST_REMOTE_CODE_ENV}=1 only for models you fully trust."
+        )
+    if trust_rc and accelerator.is_local_main_process:
+        accelerator.print(
+            "WARNING: trust_remote_code is enabled. Only use with models you trust; "
             "it can execute arbitrary code from the model repository."
         )
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.student_model, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        cfg.student_model, use_fast=True, trust_remote_code=trust_rc
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -103,7 +126,7 @@ def run_distillation(
         cfg.teacher_model,
         torch_dtype=_model_dtype(cfg.precision),
         device_map="auto",
-        trust_remote_code=cfg.trust_remote_code,
+        trust_remote_code=trust_rc,
     )
     teacher.eval()
     for p in teacher.parameters():
@@ -113,7 +136,7 @@ def run_distillation(
         cfg.student_model,
         torch_dtype=_model_dtype(cfg.precision),
         device_map=None,  # let accelerate place
-        trust_remote_code=cfg.trust_remote_code,
+        trust_remote_code=trust_rc,
     )
     if cfg.gradient_checkpointing:
         student.gradient_checkpointing_enable()

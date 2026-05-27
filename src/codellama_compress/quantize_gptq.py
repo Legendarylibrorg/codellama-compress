@@ -12,19 +12,19 @@ from transformers import AutoTokenizer
 from .config import DatasetConfig, GPTQConfig, save_json
 from .replay import hash_calibration_texts
 from .reporting import write_metrics, write_provenance
+from .security import dataset_load_extra_kwargs, normalize_training_text
 
 
 def _iter_texts(dataset_cfg: DatasetConfig) -> Iterable[str]:
     ds = load_dataset(
         dataset_cfg.name,
         dataset_cfg.config,
-        split=dataset_cfg.split,
-        streaming=True,
+        **{**dataset_load_extra_kwargs(dataset_cfg), "streaming": True},
     ).shuffle(buffer_size=dataset_cfg.shuffle_buffer, seed=dataset_cfg.seed)
     for row in ds:
         txt = row.get("content") or row.get("text") or ""
         if isinstance(txt, str) and txt.strip():
-            yield txt
+            yield normalize_training_text(txt)
 
 
 def _build_calibration_data(tokenizer, dataset_cfg: DatasetConfig, cfg: GPTQConfig):
@@ -69,7 +69,7 @@ def run_gptq_quantization(
             'auto-gptq is not installed. Install with: pip install ".[quant]"'
         ) from e
 
-    tokenizer = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True, trust_remote_code=False)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 

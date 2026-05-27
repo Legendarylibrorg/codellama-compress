@@ -24,7 +24,7 @@ from .replay import (
     init_manifest,
     verify_manifest,
 )
-from .security import resolve_user_path
+from .security import assert_code_exec_permitted, resolve_user_path
 
 
 def _load_blob(config: str | None) -> dict:
@@ -125,7 +125,7 @@ def _start_run(
     pipeline_fp: dict,
     stage: str | None = None,
     min_free_gb: float | None = None,
-    env_report: bool = True,
+    env_report: bool = False,
 ) -> Path:
     if determinism.deterministic:
         apply_global_seeds(determinism.seed)
@@ -230,7 +230,7 @@ def _cmd_prune_mask_mlp(args: argparse.Namespace) -> int:
     det = _load_determinism_cfg(blob, args)
     pipe_fp = _pipeline_fingerprint(blob, det, args.config)
 
-    model_dir = _p(args.model_dir)
+    model_dir = resolve_user_path(_p(args.model_dir), must_exist=True)
     if args.replay_from:
         assert_replay_inputs(
             Path(args.replay_from),
@@ -297,7 +297,7 @@ def _cmd_finetune_run(args: argparse.Namespace) -> int:
     ds_cfg = merge_dataclass(ds_cfg, {"seed": det.seed})
     pipe_fp = _pipeline_fingerprint(blob, det, args.config)
 
-    model_dir = _p(args.model_dir)
+    model_dir = resolve_user_path(_p(args.model_dir), must_exist=True)
     if args.replay_from:
         assert_replay_inputs(
             Path(args.replay_from),
@@ -343,7 +343,7 @@ def _cmd_quant_gptq(args: argparse.Namespace) -> int:
     q_cfg = merge_dataclass(q_cfg, {"seed": det.seed})
     pipe_fp = _pipeline_fingerprint(blob, det, args.config)
 
-    model_dir = _p(args.model_dir)
+    model_dir = resolve_user_path(_p(args.model_dir), must_exist=True)
     if args.replay_from:
         assert_replay_inputs(
             Path(args.replay_from),
@@ -388,7 +388,7 @@ def _cmd_quant_awq(args: argparse.Namespace) -> int:
     q_cfg = merge_dataclass(q_cfg, {"seed": det.seed})
     pipe_fp = _pipeline_fingerprint(blob, det, args.config)
 
-    model_dir = _p(args.model_dir)
+    model_dir = resolve_user_path(_p(args.model_dir), must_exist=True)
     if args.replay_from:
         assert_replay_inputs(
             Path(args.replay_from),
@@ -437,9 +437,14 @@ def _cmd_evaluate_run(args: argparse.Namespace) -> int:
 
     out_path = Path(args.out_path) if args.out_path else None
     if args.run_dir:
-        res = evaluate_into_run_dir(run_dir=Path(args.run_dir), model_dir=Path(args.model_dir))
+        res = evaluate_into_run_dir(
+            run_dir=Path(args.run_dir),
+            model_dir=resolve_user_path(_p(args.model_dir), must_exist=True),
+        )
     else:
-        res = evaluate_model_dir(Path(args.model_dir), out_path=out_path)
+        res = evaluate_model_dir(
+            resolve_user_path(_p(args.model_dir), must_exist=True), out_path=out_path
+        )
     print(res)
     return 0
 
@@ -490,7 +495,7 @@ def _cmd_evaluate_benchmark(args: argparse.Namespace) -> int:
         apply_global_seeds(det.seed)
 
     res = run_benchmarks(
-        model_dir=Path(args.model_dir),
+        model_dir=resolve_user_path(_p(args.model_dir), must_exist=True),
         tasks=args.tasks,
         out_dir=out_dir,
         seed=det.seed,
@@ -505,6 +510,8 @@ def _cmd_evaluate_benchmark(args: argparse.Namespace) -> int:
 
 def _cmd_evaluate_code(args: argparse.Namespace) -> int:
     from .code_eval import run_code_eval
+
+    assert_code_exec_permitted(allow_insecure=args.allow_insecure_code_exec)
 
     blob = {}
     det = _load_determinism_cfg(blob, args)
@@ -541,7 +548,7 @@ def _cmd_evaluate_code(args: argparse.Namespace) -> int:
 
     res = run_code_eval(
         run_dir=run_dir,
-        model_dir=Path(args.model_dir),
+        model_dir=resolve_user_path(_p(args.model_dir), must_exist=True),
         suite=args.suite,
         k=args.k,
         seed=det.seed,
@@ -549,6 +556,7 @@ def _cmd_evaluate_code(args: argparse.Namespace) -> int:
         temperature=args.temperature,
         top_p=args.top_p,
         limit=args.limit,
+        allow_insecure_code_exec=args.allow_insecure_code_exec,
     )
     print(res)
     print(f"Wrote code-eval results to {run_dir / 'code_eval' / args.suite}")
@@ -649,7 +657,7 @@ def build_parser() -> argparse.ArgumentParser:
     distill_run.add_argument(
         "--env-report",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
     )
     distill_run.add_argument(
@@ -682,7 +690,7 @@ def build_parser() -> argparse.ArgumentParser:
     prune_mask.add_argument(
         "--env-report",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
     )
     add_determinism_args(prune_mask, replay=True)
@@ -701,7 +709,7 @@ def build_parser() -> argparse.ArgumentParser:
     finetune_run.add_argument(
         "--env-report",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
     )
     finetune_run.add_argument(
@@ -730,7 +738,7 @@ def build_parser() -> argparse.ArgumentParser:
     qg.add_argument(
         "--env-report",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
     )
     qg.add_argument(
@@ -756,7 +764,7 @@ def build_parser() -> argparse.ArgumentParser:
     qa.add_argument(
         "--env-report",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Write env report files (pip freeze, nvidia-smi on Linux, etc.) into the run dir.",
     )
     qa.add_argument(
@@ -841,7 +849,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Write env report files into the run dir (off by default for safety).",
     )
-    ev_code.set_defaults(func=_cmd_evaluate_code)
+    ev_code.add_argument(
+        "--allow-insecure-code-exec",
+        action="store_true",
+        help=(
+            "Acknowledge host code execution risk. Requires CODELLAMA_COMPRESS_ALLOW_CODE_EXEC=1 "
+            "unless running in a container/CI environment."
+        ),
+    )
+    ev_code.set_defaults(func=_cmd_evaluate_code, allow_insecure_code_exec=False)
 
     # export bundle
     ex = sp.add_parser("export", help="Generate helper artifacts for serving/export.")

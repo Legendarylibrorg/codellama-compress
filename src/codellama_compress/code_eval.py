@@ -11,7 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .code_exec import run_python_sandboxed
 from .reporting import jsonl_writer, write_metrics, write_provenance
-from .security import resolve_user_path
+from .security import assert_code_exec_permitted, is_isolated_execution_environment, resolve_user_path
 
 
 @dataclass(frozen=True)
@@ -73,7 +73,6 @@ def _humaneval_program(prompt: str, completion: str, test: str) -> str:
         + "\n\n# Tests\n"
         + test
         + "\n"
-        + "check(__import__('builtins'))\n"
     )
 
 
@@ -94,10 +93,20 @@ def run_code_eval(
     temperature: float = 0.2,
     top_p: float = 0.95,
     limit: int | None = None,
+    allow_insecure_code_exec: bool = False,
 ) -> CodeEvalResult:
+    assert_code_exec_permitted(allow_insecure=allow_insecure_code_exec)
     out_dir = run_dir / "code_eval" / suite
     out_dir.mkdir(parents=True, exist_ok=True)
-    write_provenance(run_dir, extra={"stage": f"code_eval_{suite}", "suite": suite})
+    write_provenance(
+        run_dir,
+        extra={
+            "stage": f"code_eval_{suite}",
+            "suite": suite,
+            "code_exec_isolated": is_isolated_execution_environment(),
+            "allow_insecure_code_exec": allow_insecure_code_exec,
+        },
+    )
 
     model_dir = resolve_user_path(model_dir, must_exist=True)
     tok = AutoTokenizer.from_pretrained(model_dir, use_fast=True, trust_remote_code=False)

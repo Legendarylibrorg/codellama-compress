@@ -65,11 +65,22 @@ def write_export_bundle(
     (out_dir / "convert_gguf.sh").write_text(
         "# GENERATED FILE. Review before running.\n"
         "#!/usr/bin/env bash\n"
-        "set -e\n"
+        "set -euo pipefail\n"
+        "_validate_path() {\n"
+        '  case "$1" in\n'
+        "    ''|*..*|*$'*|*';'*|*'|'*|*'&'*|*'<'*|*'>'*|*$'\\n'*|*$'\\r'*)\n"
+        '      echo "Unsafe path argument: $1" >&2\n'
+        "      exit 1\n"
+        "      ;;\n"
+        "  esac\n"
+        "}\n"
         'IN_DIR="${1:-' + model_dir_q + '}"\n'
         'OUT_DIR="${2:-output/gguf}"\n'
         'QUANTS="${3:-q4_k_m}"\n'
         'LLAMA_CPP_DIR="${LLAMA_CPP_DIR:-./llama.cpp}"\n'
+        '_validate_path "$IN_DIR"\n'
+        '_validate_path "$OUT_DIR"\n'
+        '_validate_path "$LLAMA_CPP_DIR"\n'
         'mkdir -p "$OUT_DIR"\n'
         'if [ ! -f "$LLAMA_CPP_DIR/convert_hf_to_gguf.py" ]; then\n'
         '  echo "Expected llama.cpp at $LLAMA_CPP_DIR with convert_hf_to_gguf.py" >&2\n'

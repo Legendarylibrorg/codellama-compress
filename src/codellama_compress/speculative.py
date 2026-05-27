@@ -65,8 +65,8 @@ def speculative_generate(
     if num_speculative_tokens < 1:
         raise ValueError("num_speculative_tokens must be >= 1")
 
-    tok = AutoTokenizer.from_pretrained(target_model, use_fast=True)
-    draft_tok = AutoTokenizer.from_pretrained(draft_model, use_fast=True)
+    tok = AutoTokenizer.from_pretrained(target_model, use_fast=True, trust_remote_code=False)
+    draft_tok = AutoTokenizer.from_pretrained(draft_model, use_fast=True, trust_remote_code=False)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     if draft_tok.pad_token is None:

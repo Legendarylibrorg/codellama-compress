@@ -17,8 +17,10 @@ pip install .
 Notes:
 - `pyproject.toml` is the dependency source of truth.
 - `requirements.txt` is auto-generated (see `scripts/export_requirements.py`).
-- Only run models/repos you trust. Loading models with `trust_remote_code=True` can execute arbitrary code.
-- Run artifacts can include environment metadata (e.g. `pip freeze`, `nvidia-smi` on Linux). Use `--no-env-report` on run commands if you plan to share outputs publicly.
+- Only run models/repos you trust. `trust_remote_code` requires config **and** `CODELLAMA_COMPRESS_TRUST_REMOTE_CODE=1`.
+- Training datasets are allowlisted by default; see `SECURITY.md` for `CODELLAMA_COMPRESS_DATASET_ALLOWLIST_EXTRA`.
+- `evaluate code` requires a container/CI environment **or** `--allow-insecure-code-exec` plus `CODELLAMA_COMPRESS_ALLOW_CODE_EXEC=1`.
+- Env reports are off by default; pass `--env-report` when you need `pip freeze` / `nvidia-smi` in a run directory.
 - Architecture overview: `docs/architecture.md`.
 - This CLI now uses Python stdlib `argparse` (no Typer/Rich/PyYAML/Numpy/Scipy).
 
@@ -64,8 +66,12 @@ codellama-compress evaluate benchmark --model-dir "$RUN_DIR/finetuned" --tasks h
 Optional: code benchmarks with execution (Linux-first; runs generated code):
 
 ```bash
-codellama-compress evaluate code --model-dir "$RUN_DIR/finetuned" --suite humaneval --k 10
-codellama-compress evaluate code --model-dir "$RUN_DIR/finetuned" --suite mbpp --k 10
+# In Docker/CI, or on host with explicit ack:
+export CODELLAMA_COMPRESS_ALLOW_CODE_EXEC=1
+codellama-compress evaluate code --model-dir "$RUN_DIR/finetuned" --suite humaneval --k 10 \
+  --allow-insecure-code-exec
+codellama-compress evaluate code --model-dir "$RUN_DIR/finetuned" --suite mbpp --k 10 \
+  --allow-insecure-code-exec
 ```
 
 Start a vLLM server (after exporting) and query it:
