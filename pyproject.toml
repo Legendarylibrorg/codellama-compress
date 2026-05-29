@@ -11,22 +11,22 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Contributors" }]
 dependencies = [
-  "torch>=2.11.0,<3",
-  "transformers>=5.5.3,<6",
+  "torch>=2.12.0,<3",
+  "transformers>=5.9.0,<6",
   "accelerate>=1.13.0,<2",
-  "datasets>=4.8.4,<5",
-  "safetensors>=0.4,<1",
+  "datasets>=4.8.5,<5",
+  "safetensors>=0.7,<1",
   "tqdm>=4.67.3,<5",
 ]
 
 [project.optional-dependencies]
 quant = [
-  "auto-gptq>=0.6.0",
+  "auto-gptq>=0.7.1",
   "autoawq>=0.2.9",
-  "bitsandbytes>=0.41.0",
+  "bitsandbytes>=0.49.2",
 ]
 eval = [
-  "lm-eval[hf]>=0.4.11",
+  "lm-eval[hf]>=0.4.12",
 ]
 
 [project.scripts]
