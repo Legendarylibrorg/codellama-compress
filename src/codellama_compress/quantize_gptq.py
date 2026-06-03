@@ -1,44 +1,27 @@
 from __future__ import annotations
 
-import random
-from collections.abc import Iterable
 from pathlib import Path
 
 import torch
-from datasets import load_dataset
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer
 
 from .config import DatasetConfig, GPTQConfig, save_json
+from .data import sample_calibration_texts
 from .replay import hash_calibration_texts
 from .reporting import write_metrics, write_provenance
-from .security import dataset_load_extra_kwargs, normalize_training_text
-
-
-def _iter_texts(dataset_cfg: DatasetConfig) -> Iterable[str]:
-    ds = load_dataset(
-        dataset_cfg.name,
-        dataset_cfg.config,
-        **{**dataset_load_extra_kwargs(dataset_cfg), "streaming": True},
-    ).shuffle(buffer_size=dataset_cfg.shuffle_buffer, seed=dataset_cfg.seed)
-    for row in ds:
-        txt = row.get("content") or row.get("text") or ""
-        if isinstance(txt, str) and txt.strip():
-            yield normalize_training_text(txt)
+from .training_utils import ensure_pad_token
 
 
 def _build_calibration_data(tokenizer, dataset_cfg: DatasetConfig, cfg: GPTQConfig):
-    gen = _iter_texts(dataset_cfg)
-    rng = random.Random(cfg.seed)
     data = []
-    texts_used: list[str] = []
-    for _ in tqdm(range(cfg.calibration_samples), desc="Calibration samples"):
-        text = next(gen)
-        # truncate a random window for variety
-        if len(text) > cfg.calibration_seq_len * 4:
-            start = rng.randrange(0, max(1, len(text) - cfg.calibration_seq_len * 4))
-            text = text[start : start + cfg.calibration_seq_len * 4]
-        texts_used.append(text)
+    texts_used = sample_calibration_texts(
+        dataset_cfg,
+        samples=cfg.calibration_samples,
+        seq_len=cfg.calibration_seq_len,
+        seed=cfg.seed,
+    )
+    for text in tqdm(texts_used, desc="Calibration samples"):
         enc = tokenizer(
             text,
             return_tensors="pt",
@@ -70,8 +53,7 @@ def run_gptq_quantization(
         ) from e
 
     tokenizer = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True, trust_remote_code=False)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    ensure_pad_token(tokenizer)
 
     quantize_config = BaseQuantizeConfig(
         bits=cfg.bits,

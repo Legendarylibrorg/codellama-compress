@@ -4,11 +4,13 @@ import json
 import os
 import re
 import unicodedata
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
 # Run directories are created under output/runs/<run_id>.
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_HF_DATASET_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Reject shell/metacharacters in values embedded into generated scripts.
 _UNSAFE_SHELL_CHARS = frozenset("\n\r\x00$`\"'\\;|&<>(){}[]*?!#~")
@@ -114,7 +116,10 @@ def load_bounded_json_config(path: Path, *, max_bytes: int = _MAX_CONFIG_BYTES) 
         raise ValueError(f"Config file too large ({size} bytes > {max_bytes})")
     if p.suffix.lower() != ".json":
         raise ValueError(f"Unsupported config file type: {p.suffix}. Use JSON.")
-    data = json.loads(p.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON config: {p}") from e
     if not isinstance(data, dict):
         raise ValueError("Config root must be a JSON object")
     return data
@@ -134,17 +139,28 @@ def merge_dataclass_fields(dc: Any, updates: dict[str, Any]) -> Any:
     """Shallow merge allowing only known dataclass fields."""
     if not hasattr(dc, "__dataclass_fields__"):
         raise TypeError("merge_dataclass_fields expects a dataclass instance")
-    allowed = set(dc.__dataclass_fields__)
-    base = dict(dc.__dict__)
+    if not isinstance(updates, dict):
+        raise ValueError("Dataclass updates must be a JSON object")
+    allowed = {f.name for f in fields(dc)}
+    base = {f.name: getattr(dc, f.name) for f in fields(dc)}
     for key, val in (updates or {}).items():
         if key in allowed:
             base[key] = val
     return dc.__class__(**base)
 
 
+def _assert_safe_hf_dataset_id(dataset_id: str) -> str:
+    assert_safe_single_line(dataset_id, field="dataset_id")
+    if not _HF_DATASET_ID_RE.fullmatch(dataset_id):
+        raise ValueError(
+            f"Unsafe dataset id: {dataset_id!r}. Expected an explicit namespace/name Hub id."
+        )
+    return dataset_id
+
+
 def allowed_dataset_ids() -> frozenset[str]:
     extra = os.environ.get(DATASET_ALLOWLIST_EXTRA_ENV, "")
-    extras = {x.strip() for x in extra.split(",") if x.strip()}
+    extras = {_assert_safe_hf_dataset_id(x.strip()) for x in extra.split(",") if x.strip()}
     return _DEFAULT_ALLOWED_DATASETS | extras
 
 
@@ -216,6 +232,8 @@ def assert_code_exec_permitted(*, allow_insecure: bool = False) -> None:
 def dataset_load_extra_kwargs(dataset_cfg: Any) -> dict[str, Any]:
     """Extra kwargs for datasets.load_dataset after allowlist validation."""
     assert_allowed_dataset(dataset_cfg.name)
+    assert_safe_single_line(str(dataset_cfg.config), field="dataset.config")
+    assert_safe_single_line(str(dataset_cfg.split), field="dataset.split")
     kw: dict[str, Any] = {
         "split": dataset_cfg.split,
         "streaming": dataset_cfg.streaming,

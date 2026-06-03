@@ -127,7 +127,7 @@ def write_export_bundle(
         "if __name__ == '__main__':\n"
         "    text, stats = speculative_generate(\n"
         f"        prompt='def fibonacci(n):',\n"
-        f"        target_model={model_dir_r!r},\n"
+        f"        target_model={str(model_dir_r)!r},\n"
         "        draft_model='codellama/CodeLlama-7b-hf',\n"
         "        num_speculative_tokens=5,\n"
         "        max_new_tokens=256,\n"
