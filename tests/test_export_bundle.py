@@ -12,6 +12,7 @@ def test_export_bundle_writes_files(tmp_path: Path):
     assert (out_dir / "Modelfile").exists()
     assert (out_dir / "README.md").exists()
     assert (out_dir / "speculative_decoding.py").exists()
+    assert "target_model='" in (out_dir / "speculative_decoding.py").read_text()
 
 
 def test_export_bundle_rejects_control_chars(tmp_path: Path):

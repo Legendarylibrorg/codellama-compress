@@ -2,29 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from .config import DatasetConfig, GPTQConfig, save_json
+from .data import sample_calibration_texts
 from .replay import hash_calibration_texts
 from .reporting import write_metrics, write_provenance
-from .security import dataset_load_extra_kwargs, normalize_training_text
-
-
-def _sample_texts(dataset_cfg: DatasetConfig, n: int) -> list[str]:
-    ds = load_dataset(
-        dataset_cfg.name,
-        dataset_cfg.config,
-        **{**dataset_load_extra_kwargs(dataset_cfg), "streaming": True},
-    ).shuffle(buffer_size=dataset_cfg.shuffle_buffer, seed=dataset_cfg.seed)
-    out: list[str] = []
-    for row in ds:
-        txt = row.get("content") or row.get("text") or ""
-        if isinstance(txt, str) and txt.strip():
-            out.append(normalize_training_text(txt))
-            if len(out) >= n:
-                break
-    return out
+from .training_utils import ensure_pad_token
 
 
 def run_awq_quantization(
@@ -48,8 +32,7 @@ def run_awq_quantization(
         raise RuntimeError('autoawq is not installed. Install with: pip install ".[quant]"') from e
 
     tok = AutoTokenizer.from_pretrained(in_model_dir, use_fast=True, trust_remote_code=False)
-    if tok.pad_token is None:
-        tok.pad_token = tok.eos_token
+    ensure_pad_token(tok)
 
     model = AutoAWQForCausalLM.from_pretrained(in_model_dir)
     quant_config = {
@@ -58,7 +41,7 @@ def run_awq_quantization(
         "zero_point": True,
         "version": "GEMM",
     }
-    calib = _sample_texts(dataset_cfg, cfg.calibration_samples)
+    calib = sample_calibration_texts(dataset_cfg, samples=cfg.calibration_samples, seed=cfg.seed)
     calib_fingerprint = hash_calibration_texts(calib)
     model.quantize(tok, quant_config=quant_config, calib_data=calib)
     model.save_quantized(out_dir)

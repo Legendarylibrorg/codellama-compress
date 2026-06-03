@@ -65,6 +65,8 @@ def _limit_resources() -> None:
         mem = 1_000_000_000
         resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
         resource.setrlimit(resource.RLIMIT_FSIZE, (10_000_000, 10_000_000))
+        if hasattr(resource, "RLIMIT_CORE"):
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         if hasattr(resource, "RLIMIT_NPROC"):
             resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
         if hasattr(resource, "RLIMIT_NOFILE"):

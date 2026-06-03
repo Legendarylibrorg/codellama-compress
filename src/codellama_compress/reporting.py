@@ -11,8 +11,6 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-import torch
-
 from .config import save_json, to_jsonable
 
 
@@ -36,14 +34,20 @@ def jsonl_writer(path: Path) -> Iterator[callable]:
 
 
 def write_provenance(run_dir: Path, *, extra: dict[str, Any] | None = None) -> None:
+    try:
+        import torch
+    except Exception:  # pragma: no cover - depends on optional runtime deps
+        torch = None  # type: ignore[assignment]
+
+    cuda_available = bool(torch is not None and torch.cuda.is_available())
     prov: dict[str, Any] = {
         "time_unix": now_unix(),
         "python": sys.version,
         "platform": platform.platform(),
         "executable": sys.executable,
-        "torch": getattr(torch, "__version__", None),
-        "cuda_available": torch.cuda.is_available(),
-        "cuda_device_name": (torch.cuda.get_device_name(0) if torch.cuda.is_available() else None),
+        "torch": getattr(torch, "__version__", None) if torch is not None else None,
+        "cuda_available": cuda_available,
+        "cuda_device_name": (torch.cuda.get_device_name(0) if cuda_available else None),
         "pid": os.getpid(),
     }
     if extra:
@@ -108,6 +112,8 @@ def write_samples_jsonl(
     prompts: list[str],
     max_new_tokens: int = 128,
 ) -> None:
+    import torch
+
     path = run_dir / "logs" / "samples.jsonl"
     model.eval()
     with jsonl_writer(path) as write:

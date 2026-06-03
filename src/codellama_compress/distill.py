@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Iterable
 from dataclasses import asdict
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 from accelerate import Accelerator
-from datasets import load_dataset
 from torch.optim import AdamW
 from tqdm.auto import tqdm
 from transformers import (
@@ -18,6 +16,7 @@ from transformers import (
 )
 
 from .config import DatasetConfig, DistillConfig, save_json
+from .data import iter_dataset_texts
 from .replay import apply_global_seeds
 from .reporting import (
     dataset_provenance,
@@ -27,53 +26,19 @@ from .reporting import (
     write_samples_jsonl,
 )
 from .security import (
-    dataset_load_extra_kwargs,
-    normalize_training_text,
     resolve_path_under_base,
     resolve_trust_remote_code,
     trust_remote_code_audit_record,
 )
-
-
-def _precision_kwargs(precision: str) -> dict:
-    # accelerate uses mixed_precision; model dtype is still set explicitly
-    if precision == "bf16":
-        return {"mixed_precision": "bf16"}
-    return {"mixed_precision": "fp16"}
-
-
-def _model_dtype(precision: str):
-    return torch.bfloat16 if precision == "bf16" else torch.float16
-
-
-def _iter_texts(dataset_cfg: DatasetConfig) -> Iterable[str]:
-    ds = load_dataset(
-        dataset_cfg.name,
-        dataset_cfg.config,
-        **dataset_load_extra_kwargs(dataset_cfg),
-    )
-    if dataset_cfg.streaming:
-        ds = ds.shuffle(buffer_size=dataset_cfg.shuffle_buffer, seed=dataset_cfg.seed)
-    n = 0
-    for row in ds:
-        txt = row.get("content") or row.get("text") or ""
-        if not isinstance(txt, str) or not txt.strip():
-            continue
-        yield normalize_training_text(txt)
-        n += 1
-        if dataset_cfg.max_train_samples is not None and n >= dataset_cfg.max_train_samples:
-            break
-
-
-def _tokenize(tokenizer, text: str, seq_len: int) -> dict[str, torch.Tensor]:
-    enc = tokenizer(
-        text,
-        return_tensors="pt",
-        truncation=True,
-        max_length=seq_len,
-        padding="max_length",
-    )
-    return {k: v for k, v in enc.items()}
+from .training_utils import (
+    ensure_pad_token,
+    latest_checkpoint,
+    model_dtype,
+    precision_kwargs,
+    print_trust_remote_code_notice,
+    rotate_checkpoints,
+    tokenize_text,
+)
 
 
 def run_distillation(
@@ -100,31 +65,21 @@ def run_distillation(
     )
     steps_log_path = run_dir / "logs" / "distill_train_steps.jsonl"
 
-    accelerator = Accelerator(**_precision_kwargs(cfg.precision))
+    accelerator = Accelerator(**precision_kwargs(cfg.precision))
     device = accelerator.device
 
-    if cfg.trust_remote_code and not trust_rc and accelerator.is_local_main_process:
-        from .security import TRUST_REMOTE_CODE_ENV
-
-        accelerator.print(
-            f"NOTE: config requests trust_remote_code but it is disabled. "
-            f"Set {TRUST_REMOTE_CODE_ENV}=1 only for models you fully trust."
-        )
-    if trust_rc and accelerator.is_local_main_process:
-        accelerator.print(
-            "WARNING: trust_remote_code is enabled. Only use with models you trust; "
-            "it can execute arbitrary code from the model repository."
-        )
+    print_trust_remote_code_notice(
+        accelerator, requested=cfg.trust_remote_code, effective=trust_rc
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(
         cfg.student_model, use_fast=True, trust_remote_code=trust_rc
     )
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    ensure_pad_token(tokenizer)
 
     teacher = AutoModelForCausalLM.from_pretrained(
         cfg.teacher_model,
-        torch_dtype=_model_dtype(cfg.precision),
+        torch_dtype=model_dtype(cfg.precision),
         device_map="auto",
         trust_remote_code=trust_rc,
     )
@@ -134,7 +89,7 @@ def run_distillation(
 
     student = AutoModelForCausalLM.from_pretrained(
         cfg.student_model,
-        torch_dtype=_model_dtype(cfg.precision),
+        torch_dtype=model_dtype(cfg.precision),
         device_map=None,  # let accelerate place
         trust_remote_code=trust_rc,
     )
@@ -155,8 +110,7 @@ def run_distillation(
     if cfg.resume != "none":
         resume_path: Path | None = None
         if cfg.resume == "auto":
-            candidates = sorted(ckpt_root.glob("step_*"), key=lambda p: p.name)
-            resume_path = candidates[-1] if candidates else None
+            resume_path = latest_checkpoint(ckpt_root)
         else:
             resume_path = resolve_path_under_base(
                 Path(str(cfg.resume)), base=ckpt_root, must_exist=True
@@ -165,7 +119,7 @@ def run_distillation(
             accelerator.print(f"Resuming from {resume_path}")
             accelerator.load_state(resume_path / "accelerate_state")
 
-    texts = _iter_texts(dataset_cfg)
+    texts = iter_dataset_texts(dataset_cfg)
     data_iter = iter(texts)
 
     losses: list[float] = []
@@ -184,10 +138,10 @@ def run_distillation(
             try:
                 text = next(data_iter)
             except StopIteration:
-                data_iter = iter(_iter_texts(dataset_cfg))
+                data_iter = iter(iter_dataset_texts(dataset_cfg))
                 text = next(data_iter)
 
-            batch = _tokenize(tokenizer, text[: cfg.seq_len * 4], cfg.seq_len)
+            batch = tokenize_text(tokenizer, text[: cfg.seq_len * 4], cfg.seq_len)
             batch = {k: v.to(device) for k, v in batch.items()}
 
             with torch.no_grad():
@@ -247,25 +201,7 @@ def run_distillation(
             ckpt_dir = ckpt_root / f"step_{step + 1:07d}"
             ckpt_dir.mkdir(parents=True, exist_ok=True)
             accelerator.save_state(ckpt_dir / "accelerate_state")
-            # rotate checkpoints
-            keep = cfg.keep_last_n_checkpoints
-            if keep and keep > 0:
-                all_ckpts = sorted(ckpt_root.glob("step_*"), key=lambda p: p.name)
-                for old in all_ckpts[:-keep]:
-                    # best-effort cleanup
-                    for child in old.rglob("*"):
-                        if child.is_file():
-                            child.unlink(missing_ok=True)
-                    for child in sorted(old.rglob("*"), reverse=True):
-                        if child.is_dir():
-                            try:
-                                child.rmdir()
-                            except OSError:
-                                pass
-                    try:
-                        old.rmdir()
-                    except OSError:
-                        pass
+            rotate_checkpoints(ckpt_root, keep=cfg.keep_last_n_checkpoints)
 
     # Save final model (main process only)
     if accelerator.is_local_main_process:

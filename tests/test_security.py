@@ -12,6 +12,7 @@ from codellama_compress.export import write_export_bundle
 from codellama_compress.io import new_run_dir
 from codellama_compress.security import (
     ALLOW_CODE_EXEC_ENV,
+    DATASET_ALLOWLIST_EXTRA_ENV,
     TRUST_REMOTE_CODE_ENV,
     assert_allowed_dataset,
     assert_code_exec_permitted,
@@ -88,6 +89,24 @@ def test_resolve_user_path_rejects_symlink(tmp_path: Path) -> None:
 def test_assert_allowed_dataset_blocks_unknown() -> None:
     with pytest.raises(ValueError, match="allowlist"):
         assert_allowed_dataset("evil/unknown-dataset")
+
+
+def test_dataset_allowlist_extra_rejects_malformed_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(DATASET_ALLOWLIST_EXTRA_ENV, "bad\nid")
+    with pytest.raises(ValueError, match="dataset_id"):
+        assert_allowed_dataset("bad/id")
+
+
+def test_load_bounded_json_config_rejects_invalid_json(tmp_path: Path) -> None:
+    p = tmp_path / "bad.json"
+    p.write_text("{", encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid JSON config"):
+        load_bounded_json_config(p)
+
+
+def test_merge_dataclass_fields_rejects_non_object_updates() -> None:
+    with pytest.raises(ValueError, match="JSON object"):
+        merge_dataclass_fields(DistillConfig(), ["steps"])
 
 
 def test_normalize_training_text_nfkc() -> None:
