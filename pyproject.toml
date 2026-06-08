@@ -12,11 +12,11 @@ license = { file = "LICENSE" }
 authors = [{ name = "Contributors" }]
 dependencies = [
   "torch>=2.12.0,<3",
-  "transformers>=5.9.0,<6",
+  "transformers>=5.10.2,<6",
   "accelerate>=1.13.0,<2",
-  "datasets>=4.8.5,<6",
+  "datasets>=5.0.0,<6",
   "safetensors>=0.7,<1",
-  "tqdm>=4.67.3,<5",
+  "tqdm>=4.68.1,<5",
 ]
 
 [project.optional-dependencies]
